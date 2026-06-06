@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 10;
-constexpr const char* kAppVersion = "0.1.12";
+constexpr int kProtocolVersion = 11;
+constexpr const char* kAppVersion = "0.1.13";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -28,7 +28,6 @@ struct AppState {
   std::string ffmpeg_error_path;
   std::string capture_error_path;
   int exit_code = 0;
-  int link_attempts = 0;
   bool gtk_available = false;
 };
 
@@ -170,6 +169,25 @@ std::string pipewire_nodes() {
   return output;
 }
 
+int gamescope_node_id() {
+  const std::string nodes = pipewire_nodes();
+  std::istringstream lines(nodes);
+  std::string line;
+  int current_id = -1;
+  while (std::getline(lines, line)) {
+    const auto id_position = line.find("id ");
+    if (id_position != std::string::npos) {
+      std::istringstream value(line.substr(id_position + 3));
+      value >> current_id;
+    }
+    if (current_id >= 0 &&
+        line.find("node.name = \"gamescope\"") != std::string::npos) {
+      return current_id;
+    }
+  }
+  throw std::runtime_error("Gamescope PipeWire video node is unavailable");
+}
+
 std::string pipewire_command_output(const std::vector<std::string>& args) {
   std::vector<const gchar*> argv;
   for (const auto& arg : args) argv.push_back(arg.c_str());
@@ -200,20 +218,6 @@ std::string pipewire_command_output(const std::vector<std::string>& args) {
   g_clear_error(&error);
   g_object_unref(process);
   return output;
-}
-
-int pipewire_port_id(bool output, const std::string& node_name) {
-  const std::string ports =
-      pipewire_command_output({"pw-link", output ? "-oI" : "-iI"});
-  std::istringstream lines(ports);
-  std::string line;
-  while (std::getline(lines, line)) {
-    if (line.find(node_name + ":") == std::string::npos) continue;
-    std::istringstream values(line);
-    int id = -1;
-    if (values >> id) return id;
-  }
-  return -1;
 }
 
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
@@ -299,45 +303,13 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
 
 std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const int fps = json_int(config, "fps", 60, 1, 240);
-  return {"gst-launch-1.0", "-q", "pipewiresrc", "target-object=gamescope",
+  return {"gst-launch-1.0", "-q", "pipewiresrc",
+          "path=" + std::to_string(gamescope_node_id()),
           "do-timestamp=true", "min-buffers=8", "!", "glupload", "!",
           "glcolorconvert", "!", "gldownload", "!", "video/x-raw,format=RGBA",
           "!", "videoconvert", "!", "videorate", "!",
           "video/x-raw,format=I420,framerate=" + std::to_string(fps) + "/1",
           "!", "y4menc", "!", "fdsink", "fd=1"};
-}
-
-gboolean link_pipewire_nodes(gpointer) {
-  if (state.capture == nullptr || state.ffmpeg == nullptr) return G_SOURCE_REMOVE;
-  state.link_attempts++;
-  const int output_port = pipewire_port_id(true, "gamescope");
-  const int input_port = pipewire_port_id(false, "gst-launch-1.0");
-  if (output_port < 0 || input_port < 0) {
-    return state.link_attempts < 50 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
-  }
-  const std::vector<std::string> args = {"pw-link", "-L",
-                                         std::to_string(output_port),
-                                         std::to_string(input_port)};
-  std::vector<const gchar*> argv;
-  for (const auto& arg : args) argv.push_back(arg.c_str());
-  argv.push_back(nullptr);
-
-  GSubprocessLauncher* launcher = g_subprocess_launcher_new(
-      static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_SILENCE |
-                                    G_SUBPROCESS_FLAGS_STDERR_SILENCE));
-  g_subprocess_launcher_setenv(launcher, "PIPEWIRE_REMOTE",
-                               "pipewire-0-manager", TRUE);
-  GError* error = nullptr;
-  GSubprocess* process =
-      g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
-  g_object_unref(launcher);
-  if (process != nullptr) {
-    write_log("Started Gamescope PipeWire link attempt");
-    g_object_unref(process);
-    return G_SOURCE_REMOVE;
-  }
-  g_clear_error(&error);
-  return state.link_attempts < 50 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
 }
 
 void refresh_status() {
@@ -432,7 +404,6 @@ void start_stream(JsonObject* config) {
   const std::string capture_mode = json_string(config, "capture_mode", "pipewire");
   state.last_error.clear();
   state.exit_code = 0;
-  state.link_attempts = 0;
 
   std::vector<const gchar*> argv;
   std::ostringstream display;
@@ -501,9 +472,6 @@ void start_stream(JsonObject* config) {
   write_log("Starting FFmpeg: " + state.command_display);
   refresh_status();
   g_subprocess_wait_async(state.ffmpeg, nullptr, process_exited, nullptr);
-  if (capture_mode == "pipewire") {
-    g_timeout_add(100, link_pipewire_nodes, nullptr);
-  }
 }
 
 std::string escape_json(const std::string& text) {
