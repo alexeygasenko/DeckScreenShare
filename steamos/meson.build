@@ -1,7 +1,7 @@
 project(
   'deck-screen-share-agent',
   'cpp',
-  version: '0.1.17',
+  version: '0.1.18',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
 )
 
