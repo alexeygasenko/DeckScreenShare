@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
@@ -33,7 +33,7 @@ jobs:
           upload-artifact: false
 
       - name: Upload Flatpak bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: steamos-flatpak
           path: DeckScreenShare-SteamOS.flatpak
@@ -45,10 +45,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "8.0.x"
 
@@ -79,7 +79,7 @@ jobs:
             -DestinationPath "dist/DeckScreenShare-Windows-x64.zip"
 
       - name: Upload Windows bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-receiver
           path: dist/DeckScreenShare-Windows-x64.zip
@@ -97,7 +97,7 @@ jobs:
 
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
@@ -110,4 +110,3 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "Deck Screen Share ${GITHUB_REF_NAME}" \
             --generate-notes
-
