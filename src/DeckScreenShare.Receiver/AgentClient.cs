@@ -13,7 +13,7 @@ public sealed class AgentClient : IDisposable
     public async Task CheckAsync(string host, int port)
     {
         var status = await GetStatusAsync(host, port);
-        if (status.ProtocolVersion < 7)
+        if (status.ProtocolVersion < 8)
         {
             throw new InvalidOperationException(
                 "An older SteamOS agent is still running. Fully exit Deck Screen Share on the Deck, " +
