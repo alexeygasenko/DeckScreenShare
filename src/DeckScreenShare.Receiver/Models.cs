@@ -26,3 +26,27 @@ public sealed record RecordingSettings(
     string OutputPath,
     string PreviewPath);
 
+public sealed record PreviewSettings(
+    string FfmpegPath,
+    int SrtPort,
+    int LatencyMs,
+    string PreviewPath);
+
+public sealed class AppSettings
+{
+    public string DeckHost { get; set; } = "192.168.1.50";
+    public int DeckPort { get; set; } = 8765;
+    public string ReceiverHost { get; set; } = "";
+    public string Codec { get; set; } = "h264";
+    public string Backend { get; set; } = "software";
+    public int VideoBitrateKbps { get; set; } = 8000;
+    public int AudioBitrateKbps { get; set; } = 160;
+    public int Fps { get; set; } = 60;
+    public int LatencyMs { get; set; } = 120;
+    public string CaptureMode { get; set; } = "kmsgrab";
+    public string Container { get; set; } = "mkv";
+    public string Size { get; set; } = "1280x800";
+    public string Display { get; set; } = ":0.0";
+    public string AudioSource { get; set; } = "@DEFAULT_MONITOR@";
+    public string OutputFolder { get; set; } = "";
+}

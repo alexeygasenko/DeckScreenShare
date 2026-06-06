@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -13,65 +14,96 @@ public partial class MainWindow : Window
     private const int SrtPort = 9000;
     private readonly AgentClient _agent = new();
     private readonly FfmpegReceiver _receiver = new();
+    private readonly SettingsStore _settingsStore = new();
     private readonly DispatcherTimer _previewTimer;
-    private string _previewPath = "";
+    private readonly DispatcherTimer _settingsSaveTimer;
+    private OperationMode _mode;
+    private bool _busy;
+    private bool _allowClose;
     private string _lastLog = "";
 
     public MainWindow()
     {
         InitializeComponent();
-        ReceiverHostBox.Text = GetLocalIp();
-        OutputFolderBox.Text = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "DeckScreenShare");
+        ApplySettings(_settingsStore.Load());
         _receiver.Log += message => _lastLog = message;
         _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _previewTimer.Tick += (_, _) => RefreshPreview();
+        _settingsSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _settingsSaveTimer.Tick += (_, _) =>
+        {
+            _settingsSaveTimer.Stop();
+            SaveSettings(showError: false);
+        };
+        AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler((_, _) => ScheduleSettingsSave()));
+        AddHandler(ComboBox.SelectionChangedEvent, new SelectionChangedEventHandler((_, _) => ScheduleSettingsSave()));
+        UpdateButtons();
     }
 
-    private static string Selected(System.Windows.Controls.ComboBox box) =>
-        ((System.Windows.Controls.ComboBoxItem)box.SelectedItem).Content.ToString()!;
+    private async void Test_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetBusy(true, "Checking connection...");
+            var settings = ReadSettings();
+            SaveSettings(settings);
+            await _agent.CheckAsync(settings.DeckHost, settings.DeckPort);
+
+            PreparePreview();
+            _receiver.StartPreview(new PreviewSettings(
+                FindFfmpeg(), SrtPort, settings.LatencyMs, _settingsStore.PreviewPath));
+            await Task.Delay(400);
+            await _agent.StartAsync(settings.DeckHost, settings.DeckPort, BuildStreamSettings(settings));
+
+            _mode = OperationMode.Preview;
+            _previewTimer.Start();
+            StatusText.Text = "Connection successful. Live preview is active.";
+        }
+        catch (Exception ex)
+        {
+            await CleanupFailedStartAsync();
+            ShowError(ex, "Connection test failed");
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            SetBusy(true);
-            var codec = Selected(CodecBox);
-            var container = Selected(ContainerBox);
-            FfmpegReceiver.ValidateContainer(codec, container);
-            var folder = OutputFolderBox.Text.Trim();
-            Directory.CreateDirectory(folder);
-            _previewPath = Path.Combine(folder, ".deck-preview.jpg");
-            TryDelete(_previewPath);
-            var output = Path.Combine(folder, $"deck_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.{container}");
-            var audioBitrate = PositiveInt(AudioBitrateBox.Text, "Audio bitrate");
-            var stream = new StreamSettings(
-                ReceiverHostBox.Text.Trim(), SrtPort, codec, Selected(BackendBox), Selected(CaptureModeBox),
-                PositiveInt(FpsBox.Text, "FPS"), PositiveInt(VideoBitrateBox.Text, "Video bitrate"),
-                audioBitrate, PositiveInt(LatencyBox.Text, "Latency"), SizeBox.Text.Trim(),
-                DisplayBox.Text.Trim(), AudioSourceBox.Text.Trim());
-            var recording = new RecordingSettings(
-                FindFfmpeg(), SrtPort, stream.LatencyMs, codec, container, audioBitrate, output, _previewPath);
+            SetBusy(true, "Starting recording...");
+            var settings = ReadSettings();
+            settings.OutputFolder = Required(settings.OutputFolder, "Recording folder");
+            FfmpegReceiver.ValidateContainer(settings.Codec, settings.Container);
+            SaveSettings(settings);
+            await _agent.CheckAsync(settings.DeckHost, settings.DeckPort);
 
-            _receiver.Start(recording);
+            Directory.CreateDirectory(settings.OutputFolder);
+            PreparePreview();
+            var output = Path.Combine(
+                settings.OutputFolder,
+                $"deck_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.{settings.Container}");
+            _receiver.Start(new RecordingSettings(
+                FindFfmpeg(), SrtPort, settings.LatencyMs, settings.Codec,
+                settings.Container, settings.AudioBitrateKbps, output, _settingsStore.PreviewPath));
             await Task.Delay(400);
-            await _agent.StartAsync(DeckHostBox.Text.Trim(), PositiveInt(DeckPortBox.Text, "Agent port"), stream);
+            await _agent.StartAsync(settings.DeckHost, settings.DeckPort, BuildStreamSettings(settings));
+
+            _mode = OperationMode.Recording;
             _previewTimer.Start();
-            StartButton.IsEnabled = false;
-            StopButton.IsEnabled = true;
             StatusText.Text = $"Recording: {output}";
         }
         catch (Exception ex)
         {
-            await _agent.StopAsync();
-            _receiver.Stop();
-            MessageBox.Show(ex.Message, "Could not start recording", MessageBoxButton.OK, MessageBoxImage.Error);
-            StatusText.Text = string.IsNullOrWhiteSpace(_lastLog) ? ex.Message : _lastLog;
+            await CleanupFailedStartAsync();
+            ShowError(ex, "Could not start recording");
         }
         finally
         {
-            if (!StopButton.IsEnabled)
-                SetBusy(false);
+            SetBusy(false);
         }
     }
 
@@ -79,24 +111,111 @@ public partial class MainWindow : Window
 
     private async Task StopAsync()
     {
-        SetBusy(true);
+        var stoppedMode = _mode;
+        SetBusy(true, "Stopping...");
         _previewTimer.Stop();
         await _agent.StopAsync();
         _receiver.Stop();
-        StartButton.IsEnabled = true;
-        StopButton.IsEnabled = false;
+        _mode = OperationMode.Idle;
         PreviewHint.Visibility = Visibility.Visible;
-        StatusText.Text = "Recording stopped and saved.";
+        StatusText.Text = stoppedMode == OperationMode.Recording
+            ? "Recording stopped and saved."
+            : "Preview stopped.";
         SetBusy(false);
+    }
+
+    private async Task CleanupFailedStartAsync()
+    {
+        _previewTimer.Stop();
+        await _agent.StopAsync();
+        _receiver.Stop();
+        _mode = OperationMode.Idle;
+        PreviewHint.Visibility = Visibility.Visible;
+    }
+
+    private AppSettings ReadSettings() => new()
+    {
+        DeckHost = Required(DeckHostBox.Text, "Steam Deck IP address"),
+        DeckPort = PositiveInt(DeckPortBox.Text, "Agent port"),
+        ReceiverHost = Required(ReceiverHostBox.Text, "This PC IP address"),
+        Codec = Selected(CodecBox),
+        Backend = Selected(BackendBox),
+        VideoBitrateKbps = PositiveInt(VideoBitrateBox.Text, "Video bitrate"),
+        AudioBitrateKbps = PositiveInt(AudioBitrateBox.Text, "Audio bitrate"),
+        Fps = PositiveInt(FpsBox.Text, "FPS"),
+        LatencyMs = PositiveInt(LatencyBox.Text, "Latency"),
+        CaptureMode = Selected(CaptureModeBox),
+        Container = Selected(ContainerBox),
+        Size = Required(SizeBox.Text, "Display size"),
+        Display = Required(DisplayBox.Text, "Display"),
+        AudioSource = Required(AudioSourceBox.Text, "Audio source"),
+        OutputFolder = OutputFolderBox.Text.Trim()
+    };
+
+    private static StreamSettings BuildStreamSettings(AppSettings settings) => new(
+        settings.ReceiverHost, SrtPort, settings.Codec, settings.Backend, settings.CaptureMode,
+        settings.Fps, settings.VideoBitrateKbps, settings.AudioBitrateKbps, settings.LatencyMs,
+        settings.Size, settings.Display, settings.AudioSource);
+
+    private void ApplySettings(AppSettings settings)
+    {
+        DeckHostBox.Text = settings.DeckHost;
+        DeckPortBox.Text = settings.DeckPort.ToString();
+        ReceiverHostBox.Text = string.IsNullOrWhiteSpace(settings.ReceiverHost)
+            ? GetLocalIp()
+            : settings.ReceiverHost;
+        Select(CodecBox, settings.Codec);
+        Select(BackendBox, settings.Backend);
+        VideoBitrateBox.Text = settings.VideoBitrateKbps.ToString();
+        AudioBitrateBox.Text = settings.AudioBitrateKbps.ToString();
+        FpsBox.Text = settings.Fps.ToString();
+        LatencyBox.Text = settings.LatencyMs.ToString();
+        Select(CaptureModeBox, settings.CaptureMode);
+        Select(ContainerBox, settings.Container);
+        SizeBox.Text = settings.Size;
+        DisplayBox.Text = settings.Display;
+        AudioSourceBox.Text = settings.AudioSource;
+        OutputFolderBox.Text = string.IsNullOrWhiteSpace(settings.OutputFolder)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "DeckScreenShare")
+            : settings.OutputFolder;
+    }
+
+    private void ScheduleSettingsSave()
+    {
+        _settingsSaveTimer.Stop();
+        _settingsSaveTimer.Start();
+    }
+
+    private void SaveSettings(AppSettings? settings = null, bool showError = true)
+    {
+        try
+        {
+            _settingsStore.Save(settings ?? ReadSettings());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            if (showError)
+                StatusText.Text = $"Could not save settings: {ex.Message}";
+        }
+    }
+
+    private void PreparePreview()
+    {
+        TryDelete(_settingsStore.PreviewPath);
+        PreviewImage.Source = null;
+        PreviewHint.Visibility = Visibility.Visible;
+        _lastLog = "";
     }
 
     private void RefreshPreview()
     {
-        if (!File.Exists(_previewPath))
+        if (!File.Exists(_settingsStore.PreviewPath))
             return;
         try
         {
-            using var stream = new FileStream(_previewPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = new FileStream(
+                _settingsStore.PreviewPath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
@@ -114,11 +233,58 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFolderDialog { Title = "Recording folder", Multiselect = false };
         if (dialog.ShowDialog() == true)
+        {
             OutputFolderBox.Text = dialog.FolderName;
+            SaveSettings();
+        }
     }
 
+    private void ShowError(Exception exception, string title)
+    {
+        MessageBox.Show(exception.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+        StatusText.Text = string.IsNullOrWhiteSpace(_lastLog) ? exception.Message : _lastLog;
+    }
+
+    private void SetBusy(bool busy, string? status = null)
+    {
+        _busy = busy;
+        if (status is not null)
+            StatusText.Text = status;
+        UpdateButtons();
+    }
+
+    private void UpdateButtons()
+    {
+        TestButton.IsEnabled = !_busy && _mode == OperationMode.Idle;
+        StartButton.IsEnabled = !_busy && _mode == OperationMode.Idle;
+        StopButton.IsEnabled = !_busy && _mode != OperationMode.Idle;
+    }
+
+    private static string Selected(ComboBox box) =>
+        ((ComboBoxItem)box.SelectedItem).Content.ToString()!;
+
+    private static void Select(ComboBox box, string value)
+    {
+        foreach (ComboBoxItem item in box.Items)
+        {
+            if (string.Equals(item.Content.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                box.SelectedItem = item;
+                return;
+            }
+        }
+        box.SelectedIndex = 0;
+    }
+
+    private static string Required(string text, string name) =>
+        string.IsNullOrWhiteSpace(text)
+            ? throw new InvalidOperationException($"{name} is required.")
+            : text.Trim();
+
     private static int PositiveInt(string text, string name) =>
-        int.TryParse(text, out var value) && value > 0 ? value : throw new InvalidOperationException($"{name} must be a positive number.");
+        int.TryParse(text, out var value) && value > 0
+            ? value
+            : throw new InvalidOperationException($"{name} must be a positive number.");
 
     private static string FindFfmpeg()
     {
@@ -140,14 +306,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetBusy(bool busy)
-    {
-        if (busy)
-            StatusText.Text = "Working...";
-        StartButton.IsEnabled = !busy && !StopButton.IsEnabled;
-        StopButton.IsEnabled = !busy && _receiver.IsRunning;
-    }
-
     private static void TryDelete(string path)
     {
         try { File.Delete(path); } catch (IOException) { }
@@ -155,10 +313,20 @@ public partial class MainWindow : Window
 
     private async void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (!_receiver.IsRunning)
+        SaveSettings();
+        if (_allowClose || _mode == OperationMode.Idle)
             return;
+
         e.Cancel = true;
         await StopAsync();
+        _allowClose = true;
         Close();
+    }
+
+    private enum OperationMode
+    {
+        Idle,
+        Preview,
+        Recording
     }
 }

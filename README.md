@@ -14,6 +14,8 @@ same local network.
 - Configurable video bitrate, audio bitrate, FPS, and SRT latency.
 - MKV, MP4, MOV, WebM, and MPEG-TS recording containers.
 - Built-in live preview.
+- A connection test that starts live preview without creating a recording.
+- Automatic persistence of all Windows receiver settings between launches.
 - SRT transport designed to tolerate packet loss on a local Wi-Fi network.
 
 ## Architecture

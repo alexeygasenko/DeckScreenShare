@@ -27,13 +27,31 @@ public sealed class FfmpegReceiver : IDisposable
             "-map", "0:v:0", "-map", "0:a:0?"
         };
         AddRecordingArguments(args, settings);
+        AddPreviewArguments(args, settings.PreviewPath);
+        StartProcess(settings.FfmpegPath, args);
+    }
+
+    public void StartPreview(PreviewSettings settings)
+    {
+        Stop();
+        var srtUrl = $"srt://0.0.0.0:{settings.SrtPort}?mode=listener&transtype=live&latency={settings.LatencyMs * 1000}";
+        var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-y", "-i", srtUrl };
+        AddPreviewArguments(args, settings.PreviewPath);
+        StartProcess(settings.FfmpegPath, args);
+    }
+
+    private static void AddPreviewArguments(List<string> args, string previewPath)
+    {
         args.AddRange([
             "-map", "0:v:0", "-an",
             "-vf", "fps=12,scale=1280:-2",
-            "-q:v", "5", "-update", "1", "-f", "image2", settings.PreviewPath
+            "-q:v", "5", "-update", "1", "-f", "image2", previewPath
         ]);
+    }
 
-        var info = new ProcessStartInfo(settings.FfmpegPath)
+    private void StartProcess(string ffmpegPath, List<string> args)
+    {
+        var info = new ProcessStartInfo(ffmpegPath)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
