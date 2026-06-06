@@ -52,7 +52,7 @@ public sealed class AppSettings
     public int AudioBitrateKbps { get; set; } = 160;
     public int Fps { get; set; } = 60;
     public int LatencyMs { get; set; } = 120;
-    public string CaptureMode { get; set; } = "kmsgrab";
+    public string CaptureMode { get; set; } = "pipewire";
     public string Container { get; set; } = "mkv";
     public string Size { get; set; } = "1280x800";
     public string Display { get; set; } = ":0.0";

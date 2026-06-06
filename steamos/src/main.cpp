@@ -14,27 +14,34 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 3;
-constexpr const char* kAppVersion = "0.1.5";
+constexpr int kProtocolVersion = 4;
+constexpr const char* kAppVersion = "0.1.6";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
   GtkWidget* command_label = nullptr;
   GSocketService* service = nullptr;
   GSubprocess* ffmpeg = nullptr;
+  GSubprocess* capture = nullptr;
   std::string command_display;
   std::string last_error;
+  std::string ffmpeg_error_path;
+  std::string capture_error_path;
   int exit_code = 0;
   bool gtk_available = false;
 };
 
 AppState state;
 
-void write_log(const std::string& message) {
+std::string data_path(const char* filename) {
   const std::string directory =
       std::string(g_get_user_data_dir()) + "/DeckScreenShare";
   g_mkdir_with_parents(directory.c_str(), 0755);
-  const std::string path = directory + "/agent.log";
+  return directory + "/" + filename;
+}
+
+void write_log(const std::string& message) {
+  const std::string path = data_path("agent.log");
   GDateTime* now = g_date_time_new_now_local();
   gchar* timestamp = g_date_time_format(now, "%Y-%m-%d %H:%M:%S");
   const std::string line =
@@ -111,7 +118,7 @@ std::string available_device(JsonObject* config, const char* key,
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string codec = json_string(config, "codec", "h264");
   const std::string backend = json_string(config, "backend", "software");
-  const std::string capture_mode = json_string(config, "capture_mode", "kmsgrab");
+  const std::string capture_mode = json_string(config, "capture_mode", "pipewire");
   const std::string receiver_host = json_string(config, "receiver_host");
   const int srt_port = json_int(config, "srt_port", 9000, 1, 65535);
   const int fps = json_int(config, "fps", 60, 1, 240);
@@ -119,7 +126,7 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
       json_int(config, "video_bitrate_kbps", 8000, 250, 100000);
   const int audio_bitrate =
       json_int(config, "audio_bitrate_kbps", 160, 32, 1024);
-  const int latency = json_int(config, "latency_ms", 120, 20, 5000);
+  json_int(config, "latency_ms", 120, 20, 5000);
 
   if (receiver_host.empty() ||
       receiver_host.find_first_of("/?& \t\r\n") != std::string::npos) {
@@ -139,7 +146,10 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
 
   std::vector<std::string> args = {
       "ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"};
-  if (capture_mode == "kmsgrab") {
+  if (capture_mode == "pipewire") {
+    append(args, {"-thread_queue_size", "1024", "-f", "yuv4mpegpipe", "-i",
+                  "pipe:0"});
+  } else if (capture_mode == "kmsgrab") {
     append(args, {"-f", "kmsgrab", "-device",
                   available_device(config, "drm_device", "card"),
                   "-framerate", std::to_string(fps), "-i", "-"});
@@ -149,7 +159,8 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
                   json_string(config, "size", "1280x800"), "-i",
                   json_string(config, "display", ":0.0")});
   } else {
-    throw std::runtime_error("capture_mode must be kmsgrab or x11grab");
+    throw std::runtime_error(
+        "capture_mode must be pipewire, kmsgrab, or x11grab");
   }
 
   append(args, {"-thread_queue_size", "1024", "-f", "pulse", "-i",
@@ -174,16 +185,23 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   }
 
   const std::string video_rate = std::to_string(video_bitrate) + "k";
-  const std::string srt_url =
-      "srt://" + receiver_host + ":" + std::to_string(srt_port) +
-      "?mode=caller&transtype=live&latency=" + std::to_string(latency * 1000);
+  const std::string receiver_url =
+      "tcp://" + receiver_host + ":" + std::to_string(srt_port);
   append(args, {"-map", "0:v:0", "-map", "1:a:0", "-c:v", encoder, "-b:v",
                 video_rate, "-maxrate", video_rate, "-bufsize",
                 std::to_string(video_bitrate * 2) + "k", "-g",
                 std::to_string(fps * 2), "-c:a", "libopus", "-b:a",
                 std::to_string(audio_bitrate) + "k", "-ar", "48000", "-f",
-                "matroska", srt_url});
+                "matroska", receiver_url});
   return args;
+}
+
+std::vector<std::string> build_pipewire_command(JsonObject* config) {
+  const int fps = json_int(config, "fps", 60, 1, 240);
+  return {"gst-launch-1.0", "-q", "pipewiresrc", "target-object=gamescope",
+          "do-timestamp=true", "!", "videoconvert", "!", "videorate", "!",
+          "video/x-raw,format=I420,framerate=" + std::to_string(fps) + "/1",
+          "!", "y4menc", "!", "fdsink", "fd=1"};
 }
 
 void refresh_status() {
@@ -196,6 +214,10 @@ void refresh_status() {
 }
 
 void stop_stream() {
+  if (state.capture != nullptr) {
+    g_subprocess_force_exit(state.capture);
+    g_clear_object(&state.capture);
+  }
   if (state.ffmpeg != nullptr) {
     g_subprocess_force_exit(state.ffmpeg);
     g_clear_object(&state.ffmpeg);
@@ -204,15 +226,49 @@ void stop_stream() {
   refresh_status();
 }
 
+void capture_exited(GObject* source, GAsyncResult* result, gpointer) {
+  auto* process = G_SUBPROCESS(source);
+  g_subprocess_wait_finish(process, result, nullptr);
+  if (state.capture == process) {
+    gchar* stderr_data = nullptr;
+    gsize stderr_size = 0;
+    g_file_get_contents(state.capture_error_path.c_str(), &stderr_data,
+                        &stderr_size, nullptr);
+    state.last_error = stderr_data ? stderr_data : "Gamescope PipeWire capture exited";
+    g_free(stderr_data);
+    state.exit_code = g_subprocess_get_if_exited(process)
+                          ? g_subprocess_get_exit_status(process)
+                          : -1;
+    write_log("PipeWire capture exited with code " +
+              std::to_string(state.exit_code) + ": " + state.last_error);
+    g_clear_object(&state.capture);
+    if (state.ffmpeg != nullptr) g_subprocess_force_exit(state.ffmpeg);
+  }
+}
+
+void splice_finished(GObject* source, GAsyncResult* result, gpointer) {
+  GError* error = nullptr;
+  g_output_stream_splice_finish(G_OUTPUT_STREAM(source), result, &error);
+  if (error != nullptr) {
+    write_log(std::string("PipeWire stream splice ended: ") + error->message);
+    g_clear_error(&error);
+  }
+}
+
 void process_exited(GObject* source, GAsyncResult* result, gpointer) {
   auto* process = G_SUBPROCESS(source);
-  gchar* stdout_data = nullptr;
-  gchar* stderr_data = nullptr;
   GError* error = nullptr;
-  g_subprocess_communicate_utf8_finish(process, result, &stdout_data, &stderr_data,
-                                       &error);
+  g_subprocess_wait_finish(process, result, &error);
   if (state.ffmpeg == process) {
-    state.last_error = stderr_data ? stderr_data : "";
+    gchar* stderr_data = nullptr;
+    gsize stderr_size = 0;
+    g_file_get_contents(state.ffmpeg_error_path.c_str(), &stderr_data,
+                        &stderr_size, nullptr);
+    if (stderr_data != nullptr && stderr_size > 0) {
+      if (!state.last_error.empty()) state.last_error += "\nFFmpeg:\n";
+      state.last_error += stderr_data;
+    }
+    g_free(stderr_data);
     if (error != nullptr && state.last_error.empty()) state.last_error = error->message;
     constexpr std::size_t kMaxErrorLength = 12000;
     if (state.last_error.size() > kMaxErrorLength) {
@@ -223,18 +279,21 @@ void process_exited(GObject* source, GAsyncResult* result, gpointer) {
                           : -1;
     write_log("FFmpeg exited with code " + std::to_string(state.exit_code) +
               ": " + state.last_error);
+    if (state.capture != nullptr) {
+      g_subprocess_force_exit(state.capture);
+      g_clear_object(&state.capture);
+    }
     g_clear_object(&state.ffmpeg);
     state.command_display.clear();
     refresh_status();
   }
-  g_free(stdout_data);
-  g_free(stderr_data);
   g_clear_error(&error);
 }
 
 void start_stream(JsonObject* config) {
   stop_stream();
   const auto args = build_ffmpeg_command(config);
+  const std::string capture_mode = json_string(config, "capture_mode", "pipewire");
   state.last_error.clear();
   state.exit_code = 0;
 
@@ -247,21 +306,62 @@ void start_stream(JsonObject* config) {
   argv.push_back(nullptr);
 
   GError* error = nullptr;
-  state.ffmpeg = g_subprocess_newv(
-      argv.data(),
-      static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_SILENCE |
-                                    G_SUBPROCESS_FLAGS_STDERR_PIPE),
-      &error);
+  if (capture_mode == "pipewire") {
+    const auto capture_args = build_pipewire_command(config);
+    std::vector<const gchar*> capture_argv;
+    for (const auto& arg : capture_args) capture_argv.push_back(arg.c_str());
+    capture_argv.push_back(nullptr);
+    state.capture_error_path = data_path("capture-stderr.log");
+    g_file_set_contents(state.capture_error_path.c_str(), "", 0, nullptr);
+    GSubprocessLauncher* capture_launcher =
+        g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE);
+    g_subprocess_launcher_set_stderr_file_path(capture_launcher,
+                                               state.capture_error_path.c_str());
+    state.capture =
+        g_subprocess_launcher_spawnv(capture_launcher, capture_argv.data(), &error);
+    g_object_unref(capture_launcher);
+    if (state.capture == nullptr) {
+      const std::string message =
+          error ? error->message : "Failed to start Gamescope PipeWire capture";
+      g_clear_error(&error);
+      throw std::runtime_error(message);
+    }
+    g_subprocess_wait_async(state.capture, nullptr, capture_exited, nullptr);
+  }
+
+  state.ffmpeg_error_path = data_path("ffmpeg-stderr.log");
+  g_file_set_contents(state.ffmpeg_error_path.c_str(), "", 0, nullptr);
+  GSubprocessLauncher* launcher = g_subprocess_launcher_new(
+      static_cast<GSubprocessFlags>(
+          (capture_mode == "pipewire" ? G_SUBPROCESS_FLAGS_STDIN_PIPE
+                                       : G_SUBPROCESS_FLAGS_NONE) |
+          G_SUBPROCESS_FLAGS_STDOUT_SILENCE));
+  g_subprocess_launcher_set_stderr_file_path(launcher,
+                                             state.ffmpeg_error_path.c_str());
+  state.ffmpeg = g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
+  g_object_unref(launcher);
   if (state.ffmpeg == nullptr) {
     const std::string message = error ? error->message : "Failed to start FFmpeg";
     g_clear_error(&error);
+    if (state.capture != nullptr) {
+      g_subprocess_force_exit(state.capture);
+      g_clear_object(&state.capture);
+    }
     throw std::runtime_error(message);
+  }
+  if (capture_mode == "pipewire") {
+    g_output_stream_splice_async(
+        g_subprocess_get_stdin_pipe(state.ffmpeg),
+        g_subprocess_get_stdout_pipe(state.capture),
+        static_cast<GOutputStreamSpliceFlags>(
+            G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
+            G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET),
+        G_PRIORITY_DEFAULT, nullptr, splice_finished, nullptr);
   }
   state.command_display = display.str();
   write_log("Starting FFmpeg: " + state.command_display);
   refresh_status();
-  g_subprocess_communicate_utf8_async(state.ffmpeg, nullptr, nullptr,
-                                      process_exited, nullptr);
+  g_subprocess_wait_async(state.ffmpeg, nullptr, process_exited, nullptr);
 }
 
 std::string escape_json(const std::string& text) {

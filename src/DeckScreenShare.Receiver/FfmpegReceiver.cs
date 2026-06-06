@@ -21,7 +21,7 @@ public sealed class FfmpegReceiver : IDisposable
         Stop();
         ValidateContainer(settings.Codec, settings.Container);
 
-        var srtUrl = $"srt://0.0.0.0:{settings.SrtPort}?mode=listener&transtype=live&latency={settings.LatencyMs * 1000}";
+        var srtUrl = $"tcp://0.0.0.0:{settings.SrtPort}?listen=1";
         var args = new List<string>
         {
             "-hide_banner", "-loglevel", "warning", "-y", "-i", srtUrl,
@@ -35,7 +35,7 @@ public sealed class FfmpegReceiver : IDisposable
     public void StartPreview(PreviewSettings settings)
     {
         Stop();
-        var srtUrl = $"srt://0.0.0.0:{settings.SrtPort}?mode=listener&transtype=live&latency={settings.LatencyMs * 1000}";
+        var srtUrl = $"tcp://0.0.0.0:{settings.SrtPort}?listen=1";
         var args = new List<string> { "-hide_banner", "-loglevel", "warning", "-y", "-i", srtUrl };
         AddPreviewArguments(args, settings.PreviewPath);
         StartProcess(settings.FfmpegPath, args);

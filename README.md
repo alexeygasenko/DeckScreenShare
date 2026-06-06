@@ -11,17 +11,17 @@ same local network.
   while another game is open.
 - A native C# WPF receiver for Windows.
 - H.264, H.265/HEVC, and AV1 video encoding.
-- Configurable video bitrate, audio bitrate, FPS, and SRT latency.
+- Configurable video bitrate, audio bitrate, FPS, and stream buffer.
 - MKV, MP4, MOV, WebM, and MPEG-TS recording containers.
 - Built-in live preview.
 - A connection test that starts live preview without creating a recording.
 - Automatic persistence of all Windows receiver settings between launches.
-- SRT transport designed to tolerate packet loss on a local Wi-Fi network.
+- TCP Matroska transport designed for reliable streaming on a local Wi-Fi network.
 
 ## Architecture
 
 The SteamOS Flatpak starts FFmpeg, captures the display and system audio, and
-sends a Matroska stream over SRT. The Windows application receives that stream,
+sends a Matroska stream over TCP. The Windows application receives that stream,
 saves it to the selected container, and decodes reduced JPEG frames for its live
 preview.
 
@@ -73,8 +73,8 @@ Open Steam in Desktop Mode:
 3. Return to Gaming Mode and launch Deck Screen Share.
 4. Keep it running and launch the game you want to record.
 
-The Flatpak listens for receiver commands on TCP port `8765` and sends SRT
-video to the Windows receiver on UDP port `9000`.
+The Flatpak listens for receiver commands on TCP port `8765` and sends video to
+the Windows receiver on TCP port `9000`.
 
 When Steam Gaming Mode does not provide a graphical display, the SteamOS
 application runs headless instead of exiting. Its persistent diagnostic log is
@@ -89,10 +89,9 @@ inside the SteamOS application when you want to stop it completely.
 
 ## SteamOS Capture Notes
 
-`kmsgrab` is the default capture mode for Gaming Mode. It needs direct access to
-DRM devices, so the Flatpak requests broad device access with `--device=all`.
-SteamOS or Gamescope updates may still restrict DRM capture. Test capture on the
-target SteamOS version before relying on it.
+`pipewire` is the default capture mode for Gaming Mode. It receives the
+recording stream published by Gamescope without requiring privileged DRM/KMS
+framebuffer access.
 
 The SteamOS agent validates the requested DRM and VAAPI device paths and
 automatically falls back to the first available `/dev/dri/card*` and
@@ -114,7 +113,7 @@ extract it, or build it from source.
 Requirements:
 
 - .NET 8 SDK
-- FFmpeg for Windows with SRT support
+- FFmpeg for Windows
 
 Build:
 

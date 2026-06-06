@@ -183,7 +183,7 @@ public partial class MainWindow : Window
 
         throw new TimeoutException(
             "The SteamOS agent is running, but no video frame reached this PC. " +
-            "Check the This PC IP address and allow inbound UDP port 9000 in Windows Firewall.");
+            "Check the This PC IP address and allow inbound TCP port 9000 in Windows Firewall.");
     }
 
     private AppSettings ReadSettings() => new()
@@ -221,6 +221,8 @@ public partial class MainWindow : Window
             ? GetLocalIp()
             : settings.ReceiverHost;
         Select(CodecBox, settings.Codec);
+        if (settings.CaptureMode == "kmsgrab")
+            settings.CaptureMode = "pipewire";
         Select(BackendBox, settings.CaptureMode == "kmsgrab" && settings.Backend == "software"
             ? "vaapi"
             : settings.Backend);

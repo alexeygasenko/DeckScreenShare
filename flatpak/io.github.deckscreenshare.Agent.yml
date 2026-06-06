@@ -10,6 +10,7 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=all
+  - --filesystem=xdg-run/pipewire-0
 
 modules:
   - name: deck-screen-share-agent

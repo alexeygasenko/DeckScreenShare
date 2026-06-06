@@ -43,13 +43,58 @@
     </Style>
     <Style TargetType="ComboBox">
       <Setter Property="Height" Value="36"/>
-      <Setter Property="Padding" Value="9,5"/>
       <Setter Property="Margin" Value="0,0,0,9"/>
       <Setter Property="Foreground" Value="#F8FAFF"/>
       <Setter Property="Background" Value="#FF20283A"/>
       <Setter Property="BorderBrush" Value="{StaticResource FieldBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="ClosedBorder" CornerRadius="6"
+                      Background="#FF20283A"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"/>
+              <ContentPresenter Margin="11,0,38,0"
+                                VerticalAlignment="Center"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                TextElement.Foreground="#FFF8FAFF"/>
+              <ToggleButton x:Name="DropDownToggle" Focusable="False"
+                            HorizontalAlignment="Right" Width="36"
+                            Background="Transparent" BorderThickness="0"
+                            IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                <Path Data="M 0 0 L 5 5 L 10 0" Stroke="#FFDCE5F7"
+                      StrokeThickness="1.5" HorizontalAlignment="Center"
+                      VerticalAlignment="Center"/>
+              </ToggleButton>
+              <Popup x:Name="PART_Popup" Placement="Bottom"
+                     IsOpen="{TemplateBinding IsDropDownOpen}"
+                     AllowsTransparency="True" Focusable="False"
+                     PopupAnimation="Fade">
+                <Border Background="#FF20283A" BorderBrush="#668FA6CB"
+                        BorderThickness="1" CornerRadius="7" Padding="3"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                  <ScrollViewer MaxHeight="260">
+                    <ItemsPresenter/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="ClosedBorder" Property="Background" Value="#FF29344A"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ClosedBorder" Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="ComboBoxItem">
       <Setter Property="Foreground" Value="#F8FAFF"/>
@@ -237,7 +282,7 @@
                   <TextBox x:Name="FpsBox" Text="60"/>
                 </StackPanel>
                 <StackPanel Margin="5,0,0,0">
-                  <TextBlock Text="SRT latency, ms" Style="{StaticResource FieldLabel}"/>
+                  <TextBlock Text="Stream buffer, ms" Style="{StaticResource FieldLabel}"/>
                   <TextBox x:Name="LatencyBox" Text="120"/>
                 </StackPanel>
               </UniformGrid>
@@ -246,8 +291,8 @@
               <UniformGrid Columns="2">
                 <StackPanel Margin="0,0,5,0">
                   <TextBlock Text="Capture mode" Style="{StaticResource FieldLabel}"/>
-                  <ComboBox x:Name="CaptureModeBox" SelectedIndex="1">
-                    <ComboBoxItem Content="x11grab"/><ComboBoxItem Content="kmsgrab"/>
+                  <ComboBox x:Name="CaptureModeBox" SelectedIndex="0">
+                    <ComboBoxItem Content="pipewire"/><ComboBoxItem Content="x11grab"/><ComboBoxItem Content="kmsgrab"/>
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Margin="5,0,0,0">
@@ -303,7 +348,7 @@
               <Border DockPanel.Dock="Right" Background="#24FFFFFF" BorderBrush="#45FFFFFF"
                       BorderThickness="1" CornerRadius="12" Padding="10,6"
                       HorizontalAlignment="Right" VerticalAlignment="Center">
-                <TextBlock Text="SRT" FontSize="11" FontWeight="SemiBold" Foreground="#CDE1FF"/>
+                <TextBlock Text="TCP" FontSize="11" FontWeight="SemiBold" Foreground="#CDE1FF"/>
               </Border>
             </DockPanel>
 
