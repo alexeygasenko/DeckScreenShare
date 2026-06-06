@@ -15,7 +15,7 @@ namespace {
 
 constexpr guint kAgentPort = 8765;
 constexpr int kProtocolVersion = 3;
-constexpr const char* kAppVersion = "0.1.4";
+constexpr const char* kAppVersion = "0.1.5";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -78,9 +78,34 @@ void append(std::vector<std::string>& args,
   args.insert(args.end(), values.begin(), values.end());
 }
 
-std::string default_drm_device() {
-  return g_file_test("/dev/dri/card1", G_FILE_TEST_EXISTS) ? "/dev/dri/card1"
-                                                           : "/dev/dri/card0";
+std::vector<std::string> device_paths(const char* prefix) {
+  std::vector<std::string> paths;
+  GError* error = nullptr;
+  GDir* directory = g_dir_open("/dev/dri", 0, &error);
+  if (directory == nullptr) {
+    g_clear_error(&error);
+    return paths;
+  }
+  while (const gchar* name = g_dir_read_name(directory)) {
+    if (g_str_has_prefix(name, prefix)) {
+      paths.push_back(std::string("/dev/dri/") + name);
+    }
+  }
+  g_dir_close(directory);
+  std::sort(paths.begin(), paths.end());
+  return paths;
+}
+
+std::string available_device(JsonObject* config, const char* key,
+                             const char* prefix) {
+  const std::string requested = json_string(config, key);
+  if (!requested.empty() && g_file_test(requested.c_str(), G_FILE_TEST_EXISTS)) {
+    return requested;
+  }
+  const auto paths = device_paths(prefix);
+  if (!paths.empty()) return paths.front();
+  throw std::runtime_error(std::string("No /dev/dri/") + prefix +
+                           "* device is available inside the Flatpak");
 }
 
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
@@ -116,7 +141,7 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
       "ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"};
   if (capture_mode == "kmsgrab") {
     append(args, {"-f", "kmsgrab", "-device",
-                  json_string(config, "drm_device", default_drm_device().c_str()),
+                  available_device(config, "drm_device", "card"),
                   "-framerate", std::to_string(fps), "-i", "-"});
   } else if (capture_mode == "x11grab") {
     append(args, {"-f", "x11grab", "-draw_mouse", "1", "-framerate",
@@ -133,7 +158,7 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string encoder = encoders.at(codec).at(backend);
   if (backend == "vaapi") {
     append(args, {"-vaapi_device",
-                  json_string(config, "vaapi_device", "/dev/dri/renderD128")});
+                  available_device(config, "vaapi_device", "renderD")});
     append(args, {"-vf", capture_mode == "kmsgrab"
                              ? "hwmap=derive_device=vaapi,scale_vaapi=format=nv12"
                              : "format=nv12,hwupload"});
@@ -356,6 +381,18 @@ std::string encoder_capabilities() {
       first = false;
     }
   }
+  json << "],\"drm_devices\":[";
+  first = true;
+  for (const auto& path : device_paths("card")) {
+    json << (first ? "" : ",") << "\"" << escape_json(path) << "\"";
+    first = false;
+  }
+  json << "],\"vaapi_devices\":[";
+  first = true;
+  for (const auto& path : device_paths("renderD")) {
+    json << (first ? "" : ",") << "\"" << escape_json(path) << "\"";
+    first = false;
+  }
   json << "]}";
   return json.str();
 }
@@ -449,7 +486,20 @@ void hide_clicked(GtkButton*, gpointer data) {
   gtk_window_iconify(GTK_WINDOW(data));
 }
 
+gboolean window_delete_requested(GtkWidget* window, GdkEvent*, gpointer) {
+  gtk_widget_hide(window);
+  write_log("Window hidden; agent continues running");
+  return TRUE;
+}
+
 void window_destroyed(GtkWidget*, gpointer) {
+  state.status_label = nullptr;
+  state.command_label = nullptr;
+  write_log("Window destroyed; agent continues running in headless mode");
+}
+
+void quit_clicked(GtkButton*, gpointer) {
+  write_log("Agent stopped by user");
   stop_stream();
   if (state.service != nullptr) g_socket_service_stop(state.service);
   gtk_main_quit();
@@ -462,6 +512,8 @@ GtkWidget* create_window() {
   gtk_window_set_title(GTK_WINDOW(window), window_title.c_str());
   gtk_window_set_default_size(GTK_WINDOW(window), 560, 320);
   gtk_container_set_border_width(GTK_CONTAINER(window), 22);
+  g_signal_connect(window, "delete-event",
+                   G_CALLBACK(window_delete_requested), nullptr);
   g_signal_connect(window, "destroy", G_CALLBACK(window_destroyed), nullptr);
 
   GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
@@ -498,6 +550,9 @@ GtkWidget* create_window() {
   GtkWidget* hide = gtk_button_new_with_label("Hide window");
   g_signal_connect(hide, "clicked", G_CALLBACK(hide_clicked), window);
   gtk_box_pack_start(GTK_BOX(buttons), hide, FALSE, FALSE, 0);
+  GtkWidget* quit = gtk_button_new_with_label("Quit agent");
+  g_signal_connect(quit, "clicked", G_CALLBACK(quit_clicked), nullptr);
+  gtk_box_pack_start(GTK_BOX(buttons), quit, FALSE, FALSE, 0);
   gtk_box_pack_end(GTK_BOX(box), buttons, FALSE, FALSE, 0);
   return window;
 }

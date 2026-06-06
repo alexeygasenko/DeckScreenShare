@@ -84,6 +84,9 @@ stored at:
 ~/.var/app/io.github.deckscreenshare.Agent/data/DeckScreenShare/agent.log
 ```
 
+Closing or hiding the SteamOS window does not stop the agent. Use **Quit agent**
+inside the SteamOS application when you want to stop it completely.
+
 ## SteamOS Capture Notes
 
 `kmsgrab` is the default capture mode for Gaming Mode. It needs direct access to
@@ -91,9 +94,10 @@ DRM devices, so the Flatpak requests broad device access with `--device=all`.
 SteamOS or Gamescope updates may still restrict DRM capture. Test capture on the
 target SteamOS version before relying on it.
 
-The default Gaming Mode settings use VAAPI and `/dev/dri/card1` when available,
-falling back to `/dev/dri/card0`. Both DRM and VAAPI device paths can be changed
-in the Windows receiver if the Deck exposes different device nodes.
+The SteamOS agent validates the requested DRM and VAAPI device paths and
+automatically falls back to the first available `/dev/dri/card*` and
+`/dev/dri/renderD*` devices. Both paths can still be changed in the Windows
+receiver.
 
 For Desktop Mode testing, select `x11grab` in the Windows receiver.
 

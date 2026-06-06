@@ -57,7 +57,7 @@ public sealed class AppSettings
     public string Size { get; set; } = "1280x800";
     public string Display { get; set; } = ":0.0";
     public string AudioSource { get; set; } = "@DEFAULT_MONITOR@";
-    public string DrmDevice { get; set; } = "/dev/dri/card1";
+    public string DrmDevice { get; set; } = "/dev/dri/card0";
     public string VaapiDevice { get; set; } = "/dev/dri/renderD128";
     public string OutputFolder { get; set; } = "";
 }
