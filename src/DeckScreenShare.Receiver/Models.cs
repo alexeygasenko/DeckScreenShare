@@ -43,6 +43,7 @@ public sealed record AgentStatus(
 
 public sealed record AgentDiagnostics(
     [property: JsonPropertyName("pipewire_nodes")] string? PipewireNodes,
+    [property: JsonPropertyName("pipewire_ports")] string? PipewirePorts,
     [property: JsonPropertyName("capture_stderr")] string? CaptureStderr,
     [property: JsonPropertyName("ffmpeg_stderr")] string? FfmpegStderr);
 

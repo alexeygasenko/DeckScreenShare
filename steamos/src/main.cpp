@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 9;
-constexpr const char* kAppVersion = "0.1.11";
+constexpr int kProtocolVersion = 10;
+constexpr const char* kAppVersion = "0.1.12";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -170,6 +170,52 @@ std::string pipewire_nodes() {
   return output;
 }
 
+std::string pipewire_command_output(const std::vector<std::string>& args) {
+  std::vector<const gchar*> argv;
+  for (const auto& arg : args) argv.push_back(arg.c_str());
+  argv.push_back(nullptr);
+  GSubprocessLauncher* launcher = g_subprocess_launcher_new(
+      static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+                                    G_SUBPROCESS_FLAGS_STDERR_PIPE));
+  g_subprocess_launcher_setenv(launcher, "PIPEWIRE_REMOTE",
+                               "pipewire-0-manager", TRUE);
+  GError* error = nullptr;
+  GSubprocess* process =
+      g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
+  g_object_unref(launcher);
+  if (process == nullptr) {
+    const std::string message = error ? error->message : "Command failed";
+    g_clear_error(&error);
+    return message;
+  }
+  gchar* stdout_data = nullptr;
+  gchar* stderr_data = nullptr;
+  g_subprocess_communicate_utf8(process, nullptr, nullptr, &stdout_data,
+                                &stderr_data, &error);
+  std::string output = stdout_data ? stdout_data : "";
+  if (output.empty() && stderr_data != nullptr) output = stderr_data;
+  if (error != nullptr) output = error->message;
+  g_free(stdout_data);
+  g_free(stderr_data);
+  g_clear_error(&error);
+  g_object_unref(process);
+  return output;
+}
+
+int pipewire_port_id(bool output, const std::string& node_name) {
+  const std::string ports =
+      pipewire_command_output({"pw-link", output ? "-oI" : "-iI"});
+  std::istringstream lines(ports);
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (line.find(node_name + ":") == std::string::npos) continue;
+    std::istringstream values(line);
+    int id = -1;
+    if (values >> id) return id;
+  }
+  return -1;
+}
+
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string codec = json_string(config, "codec", "h264");
   const std::string backend = json_string(config, "backend", "software");
@@ -264,8 +310,14 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
 gboolean link_pipewire_nodes(gpointer) {
   if (state.capture == nullptr || state.ffmpeg == nullptr) return G_SOURCE_REMOVE;
   state.link_attempts++;
-  const std::vector<std::string> args = {
-      "pw-link", "-L", "-w", "gamescope", "gst-launch-1.0"};
+  const int output_port = pipewire_port_id(true, "gamescope");
+  const int input_port = pipewire_port_id(false, "gst-launch-1.0");
+  if (output_port < 0 || input_port < 0) {
+    return state.link_attempts < 50 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+  }
+  const std::vector<std::string> args = {"pw-link", "-L",
+                                         std::to_string(output_port),
+                                         std::to_string(input_port)};
   std::vector<const gchar*> argv;
   for (const auto& arg : args) argv.push_back(arg.c_str());
   argv.push_back(nullptr);
@@ -488,6 +540,8 @@ std::string status_json() {
 
 std::string diagnostics_json() {
   return "{\"pipewire_nodes\":\"" + escape_json(pipewire_nodes()) +
+         "\",\"pipewire_ports\":\"" +
+         escape_json(pipewire_command_output({"pw-link", "-iolI"})) +
          "\",\"capture_stderr\":\"" +
          escape_json(file_contents(state.capture_error_path)) +
          "\",\"ffmpeg_stderr\":\"" +

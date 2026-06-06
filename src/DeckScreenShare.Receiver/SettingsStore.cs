@@ -53,6 +53,7 @@ public sealed class SettingsStore
             DiagnosticsPath,
             $"Capture stderr:\n{diagnostics.CaptureStderr}\n\n" +
             $"FFmpeg stderr:\n{diagnostics.FfmpegStderr}\n\n" +
+            $"PipeWire ports and links:\n{diagnostics.PipewirePorts}\n\n" +
             $"PipeWire nodes:\n{diagnostics.PipewireNodes}\n");
     }
 }
