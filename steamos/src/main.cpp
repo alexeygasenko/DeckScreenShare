@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 11;
-constexpr const char* kAppVersion = "0.1.13";
+constexpr int kProtocolVersion = 12;
+constexpr const char* kAppVersion = "0.1.14";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -305,9 +305,8 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const int fps = json_int(config, "fps", 60, 1, 240);
   return {"gst-launch-1.0", "-q", "pipewiresrc",
           "path=" + std::to_string(gamescope_node_id()),
-          "do-timestamp=true", "min-buffers=8", "!", "glupload", "!",
-          "glcolorconvert", "!", "gldownload", "!", "video/x-raw,format=RGBA",
-          "!", "videoconvert", "!", "videorate", "!",
+          "always-copy=true", "do-timestamp=true", "!", "queue", "!",
+          "videoconvert", "!", "videorate", "!",
           "video/x-raw,format=I420,framerate=" + std::to_string(fps) + "/1",
           "!", "y4menc", "!", "fdsink", "fd=1"};
 }
