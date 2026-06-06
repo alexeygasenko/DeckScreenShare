@@ -14,6 +14,7 @@ public sealed class FfmpegReceiver : IDisposable
         }
     }
     public event Action<string>? Log;
+    public event Action? Exited;
 
     public void Start(RecordingSettings settings)
     {
@@ -63,6 +64,7 @@ public sealed class FfmpegReceiver : IDisposable
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         process.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) Log?.Invoke(e.Data); };
+        process.Exited += (_, _) => Exited?.Invoke();
         process.Start();
         process.BeginErrorReadLine();
         _process = process;
@@ -109,7 +111,7 @@ public sealed class FfmpegReceiver : IDisposable
         try
         {
             _process!.StandardInput.WriteLine("q");
-            if (!_process.WaitForExit(8000))
+            if (!_process.WaitForExit(2500))
                 _process.Kill(true);
         }
         catch
@@ -123,6 +125,8 @@ public sealed class FfmpegReceiver : IDisposable
             _process = null;
         }
     }
+
+    public Task StopAsync() => Task.Run(Stop);
 
     public void Dispose() => Stop();
 }

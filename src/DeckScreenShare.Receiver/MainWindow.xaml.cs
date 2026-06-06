@@ -26,7 +26,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         ApplySettings(_settingsStore.Load());
-        _receiver.Log += message => _lastLog = message;
+        _receiver.Log += message => Dispatcher.Invoke(() =>
+        {
+            _lastLog = message;
+            if (_mode != OperationMode.Idle)
+                StatusText.Text = message;
+        });
+        _receiver.Exited += () => Dispatcher.Invoke(() =>
+        {
+            if (_mode != OperationMode.Idle)
+                StatusText.Text = string.IsNullOrWhiteSpace(_lastLog)
+                    ? "The local FFmpeg receiver stopped unexpectedly."
+                    : _lastLog;
+        });
         _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _previewTimer.Tick += (_, _) => RefreshPreview();
         _settingsSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
@@ -57,6 +69,7 @@ public partial class MainWindow : Window
 
             _mode = OperationMode.Preview;
             _previewTimer.Start();
+            await WaitForFirstFrameAsync(settings);
             StatusText.Text = "Connection successful. Live preview is active.";
         }
         catch (Exception ex)
@@ -94,6 +107,7 @@ public partial class MainWindow : Window
 
             _mode = OperationMode.Recording;
             _previewTimer.Start();
+            await WaitForFirstFrameAsync(settings);
             StatusText.Text = $"Recording: {output}";
         }
         catch (Exception ex)
@@ -114,8 +128,7 @@ public partial class MainWindow : Window
         var stoppedMode = _mode;
         SetBusy(true, "Stopping...");
         _previewTimer.Stop();
-        await _agent.StopAsync();
-        _receiver.Stop();
+        await Task.WhenAll(_agent.StopAsync(), _receiver.StopAsync());
         _mode = OperationMode.Idle;
         PreviewHint.Visibility = Visibility.Visible;
         StatusText.Text = stoppedMode == OperationMode.Recording
@@ -127,10 +140,45 @@ public partial class MainWindow : Window
     private async Task CleanupFailedStartAsync()
     {
         _previewTimer.Stop();
-        await _agent.StopAsync();
-        _receiver.Stop();
+        await Task.WhenAll(_agent.StopAsync(), _receiver.StopAsync());
         _mode = OperationMode.Idle;
         PreviewHint.Visibility = Visibility.Visible;
+    }
+
+    private async Task WaitForFirstFrameAsync(AppSettings settings)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(_settingsStore.PreviewPath) &&
+                new FileInfo(_settingsStore.PreviewPath).Length > 0)
+            {
+                RefreshPreview();
+                return;
+            }
+
+            if (!_receiver.IsRunning)
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(_lastLog)
+                        ? "The local FFmpeg receiver stopped before the first frame arrived."
+                        : _lastLog);
+
+            var agentStatus = await _agent.GetStatusAsync(settings.DeckHost, settings.DeckPort);
+            if (!agentStatus.Running)
+            {
+                var details = string.IsNullOrWhiteSpace(agentStatus.LastError)
+                    ? $"SteamOS FFmpeg exited with code {agentStatus.ExitCode?.ToString() ?? "unknown"}."
+                    : agentStatus.LastError.Trim();
+                throw new InvalidOperationException(details);
+            }
+
+            StatusText.Text = "Connected to the agent. Waiting for the first video frame...";
+            await Task.Delay(350);
+        }
+
+        throw new TimeoutException(
+            "The SteamOS agent is running, but no video frame reached this PC. " +
+            "Check the This PC IP address and allow inbound UDP port 9000 in Windows Firewall.");
     }
 
     private AppSettings ReadSettings() => new()

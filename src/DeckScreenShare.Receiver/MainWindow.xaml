@@ -10,6 +10,11 @@
     <SolidColorBrush x:Key="MutedText" Color="#AAB5CC"/>
     <SolidColorBrush x:Key="FieldBackground" Color="#65141B2A"/>
     <SolidColorBrush x:Key="FieldBorder" Color="#55FFFFFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FF20283A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#FF20283A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFF8FAFF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FF4E6EA8"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFFFF"/>
 
     <Style TargetType="TextBlock">
       <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
@@ -50,6 +55,23 @@
       <Setter Property="Foreground" Value="#F8FAFF"/>
       <Setter Property="Background" Value="#FF20283A"/>
       <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="#FF40547D"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="#FF4E6EA8"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style TargetType="Button">
       <Setter Property="Height" Value="38"/>
@@ -170,7 +192,8 @@
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0" Style="{StaticResource GlassCard}" Padding="20">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                        Padding="0,0,14,0">
             <StackPanel>
               <TextBlock Text="Connection" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
               <TextBlock Text="Steam Deck IP address" Style="{StaticResource FieldLabel}"/>

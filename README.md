@@ -113,6 +113,11 @@ IP, select the recording settings, and click **Start recording**.
 Recordings are saved to `Videos\DeckScreenShare` by default. On first launch,
 allow the application and FFmpeg through Windows Firewall for private networks.
 
+The receiver reports a successful preview or recording only after the first
+video frame arrives. If SteamOS FFmpeg exits before that, its error and exit
+code are shown in the Windows status area. This makes capture-mode, DRM-device,
+audio-source, and encoder failures directly visible.
+
 ## Automated Builds
 
 GitHub Actions builds both applications on every push and pull request. Tags

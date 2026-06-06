@@ -32,6 +32,11 @@ public sealed record PreviewSettings(
     int LatencyMs,
     string PreviewPath);
 
+public sealed record AgentStatus(
+    [property: JsonPropertyName("running")] bool Running,
+    [property: JsonPropertyName("last_error")] string? LastError,
+    [property: JsonPropertyName("exit_code")] int? ExitCode);
+
 public sealed class AppSettings
 {
     public string DeckHost { get; set; } = "192.168.1.50";

@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 
@@ -17,6 +18,15 @@ public sealed class AgentClient : IDisposable
         _baseUrl = baseUrl;
     }
 
+    public async Task<AgentStatus> GetStatusAsync(string host, int port)
+    {
+        var baseUrl = $"http://{host}:{port}";
+        using var response = await _http.GetAsync($"{baseUrl}/api/status");
+        await EnsureSuccessAsync(response);
+        return await response.Content.ReadFromJsonAsync<AgentStatus>()
+            ?? throw new HttpRequestException("SteamOS agent returned an empty status response.");
+    }
+
     public async Task StartAsync(string host, int port, StreamSettings settings)
     {
         var baseUrl = $"http://{host}:{port}";
@@ -31,7 +41,8 @@ public sealed class AgentClient : IDisposable
             return;
         try
         {
-            using var response = await PostJsonAsync($"{_baseUrl}/api/stop", new { });
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var response = await PostJsonAsync($"{_baseUrl}/api/stop", new { }, cancellation.Token);
         }
         catch
         {
@@ -43,12 +54,13 @@ public sealed class AgentClient : IDisposable
         }
     }
 
-    private async Task<HttpResponseMessage> PostJsonAsync<T>(string url, T value)
+    private async Task<HttpResponseMessage> PostJsonAsync<T>(
+        string url, T value, CancellationToken cancellationToken = default)
     {
         var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value));
         var content = new ByteArrayContent(payload);
         content.Headers.ContentType = new("application/json") { CharSet = "utf-8" };
-        return await _http.PostAsync(url, content);
+        return await _http.PostAsync(url, content, cancellationToken);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)

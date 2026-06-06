@@ -21,6 +21,8 @@ struct AppState {
   GSocketService* service = nullptr;
   GSubprocess* ffmpeg = nullptr;
   std::string command_display;
+  std::string last_error;
+  int exit_code = 0;
 };
 
 AppState state;
@@ -146,17 +148,35 @@ void stop_stream() {
 
 void process_exited(GObject* source, GAsyncResult* result, gpointer) {
   auto* process = G_SUBPROCESS(source);
-  g_subprocess_wait_finish(process, result, nullptr);
+  gchar* stdout_data = nullptr;
+  gchar* stderr_data = nullptr;
+  GError* error = nullptr;
+  g_subprocess_communicate_utf8_finish(process, result, &stdout_data, &stderr_data,
+                                       &error);
   if (state.ffmpeg == process) {
+    state.last_error = stderr_data ? stderr_data : "";
+    if (error != nullptr && state.last_error.empty()) state.last_error = error->message;
+    constexpr std::size_t kMaxErrorLength = 12000;
+    if (state.last_error.size() > kMaxErrorLength) {
+      state.last_error.erase(0, state.last_error.size() - kMaxErrorLength);
+    }
+    state.exit_code = g_subprocess_get_if_exited(process)
+                          ? g_subprocess_get_exit_status(process)
+                          : -1;
     g_clear_object(&state.ffmpeg);
     state.command_display.clear();
     refresh_status();
   }
+  g_free(stdout_data);
+  g_free(stderr_data);
+  g_clear_error(&error);
 }
 
 void start_stream(JsonObject* config) {
   stop_stream();
   const auto args = build_ffmpeg_command(config);
+  state.last_error.clear();
+  state.exit_code = 0;
 
   std::vector<const gchar*> argv;
   std::ostringstream display;
@@ -169,7 +189,8 @@ void start_stream(JsonObject* config) {
   GError* error = nullptr;
   state.ffmpeg = g_subprocess_newv(
       argv.data(),
-      G_SUBPROCESS_FLAGS_STDOUT_SILENCE,
+      static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_SILENCE |
+                                    G_SUBPROCESS_FLAGS_STDERR_PIPE),
       &error);
   if (state.ffmpeg == nullptr) {
     const std::string message = error ? error->message : "Failed to start FFmpeg";
@@ -178,20 +199,38 @@ void start_stream(JsonObject* config) {
   }
   state.command_display = display.str();
   refresh_status();
-  g_subprocess_wait_async(state.ffmpeg, nullptr, process_exited, nullptr);
+  g_subprocess_communicate_utf8_async(state.ffmpeg, nullptr, nullptr,
+                                      process_exited, nullptr);
 }
 
 std::string escape_json(const std::string& text) {
+  static constexpr char hex[] = "0123456789abcdef";
   std::string output;
-  for (const char value : text) {
-    if (value == '\\' || value == '"') output += '\\';
-    if (value == '\n') {
+  for (const unsigned char value : text) {
+    if (value == '\\' || value == '"') {
+      output += '\\';
+      output += static_cast<char>(value);
+    } else if (value == '\n') {
       output += "\\n";
+    } else if (value == '\r') {
+      output += "\\r";
+    } else if (value == '\t') {
+      output += "\\t";
+    } else if (value < 0x20) {
+      output += "\\u00";
+      output += hex[value >> 4];
+      output += hex[value & 0x0f];
     } else {
-      output += value;
+      output += static_cast<char>(value);
     }
   }
   return output;
+}
+
+std::string status_json() {
+  return std::string("{\"running\":") + (state.ffmpeg ? "true" : "false") +
+         ",\"last_error\":\"" + escape_json(state.last_error) +
+         "\",\"exit_code\":" + std::to_string(state.exit_code) + "}";
 }
 
 void send_response(GOutputStream* output, int status, const std::string& body) {
@@ -330,9 +369,7 @@ gboolean handle_connection(GSocketService*, GSocketConnection* connection,
         chunked ? read_chunked_request_body(input)
                 : read_request_body(input, content_length);
     if (method == "GET" && path == "/api/status") {
-      send_response(output, 200,
-                    std::string("{\"running\":") +
-                        (state.ffmpeg ? "true" : "false") + "}");
+      send_response(output, 200, status_json());
     } else if (method == "GET" && path == "/api/capabilities") {
       send_response(output, 200, encoder_capabilities());
     } else if (method == "POST" && path == "/api/stop") {
