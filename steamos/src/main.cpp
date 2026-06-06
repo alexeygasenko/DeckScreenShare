@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 4;
-constexpr const char* kAppVersion = "0.1.6";
+constexpr int kProtocolVersion = 5;
+constexpr const char* kAppVersion = "0.1.7";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -113,6 +113,13 @@ std::string available_device(JsonObject* config, const char* key,
   if (!paths.empty()) return paths.front();
   throw std::runtime_error(std::string("No /dev/dri/") + prefix +
                            "* device is available inside the Flatpak");
+}
+
+bool pipewire_manager_available() {
+  const gchar* runtime = g_get_user_runtime_dir();
+  if (runtime == nullptr) return false;
+  return g_file_test((std::string(runtime) + "/pipewire-0-manager").c_str(),
+                     G_FILE_TEST_EXISTS);
 }
 
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
@@ -315,6 +322,8 @@ void start_stream(JsonObject* config) {
     g_file_set_contents(state.capture_error_path.c_str(), "", 0, nullptr);
     GSubprocessLauncher* capture_launcher =
         g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE);
+    g_subprocess_launcher_setenv(capture_launcher, "PIPEWIRE_REMOTE",
+                                 "pipewire-0-manager", TRUE);
     g_subprocess_launcher_set_stderr_file_path(capture_launcher,
                                                state.capture_error_path.c_str());
     state.capture =
@@ -493,7 +502,8 @@ std::string encoder_capabilities() {
     json << (first ? "" : ",") << "\"" << escape_json(path) << "\"";
     first = false;
   }
-  json << "]}";
+  json << "],\"pipewire_manager_available\":"
+       << (pipewire_manager_available() ? "true" : "false") << "}";
   return json.str();
 }
 

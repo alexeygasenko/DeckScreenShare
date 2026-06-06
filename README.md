@@ -91,7 +91,8 @@ inside the SteamOS application when you want to stop it completely.
 
 `pipewire` is the default capture mode for Gaming Mode. It receives the
 recording stream published by Gamescope without requiring privileged DRM/KMS
-framebuffer access.
+framebuffer access. The Flatpak uses PipeWire's manager socket so that the
+Gamescope recording node is visible inside the sandbox.
 
 The SteamOS agent validates the requested DRM and VAAPI device paths and
 automatically falls back to the first available `/dev/dri/card*` and
