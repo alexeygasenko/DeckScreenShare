@@ -32,6 +32,24 @@ JSON-GLib. Python is not used anywhere in the project.
 
 ## Build And Install The SteamOS Flatpak
 
+### Install From A GitHub Release
+
+Download `DeckScreenShare-SteamOS.flatpak` from the latest
+[GitHub Release](https://github.com/alexeygasenko/DeckScreenShare/releases),
+then install it in SteamOS Desktop Mode:
+
+```bash
+flatpak install --user ./DeckScreenShare-SteamOS.flatpak
+```
+
+Run it directly for a quick check:
+
+```bash
+flatpak run io.github.deckscreenshare.Agent
+```
+
+### Build From Source
+
 Install Flatpak and Flatpak Builder in SteamOS Desktop Mode, then install the
 required GNOME SDK:
 
@@ -44,12 +62,6 @@ Build and install the application from the repository root:
 ```bash
 flatpak-builder --user --install --force-clean build-flatpak \
   flatpak/io.github.deckscreenshare.Agent.yml
-```
-
-Run it directly for a quick check:
-
-```bash
-flatpak run io.github.deckscreenshare.Agent
 ```
 
 Open Steam in Desktop Mode:
@@ -77,6 +89,10 @@ while playing a game.
 
 ## Build The Windows Receiver
 
+Download `DeckScreenShare-Windows-x64.zip` from the latest
+[GitHub Release](https://github.com/alexeygasenko/DeckScreenShare/releases) and
+extract it, or build it from source.
+
 Requirements:
 
 - .NET 8 SDK
@@ -94,6 +110,14 @@ IP, select the recording settings, and click **Start recording**.
 
 Recordings are saved to `Videos\DeckScreenShare` by default. On first launch,
 allow the application and FFmpeg through Windows Firewall for private networks.
+
+## Automated Builds
+
+GitHub Actions builds both applications on every push and pull request. Tags
+matching `v*`, such as `v0.1.0`, automatically create a GitHub Release with:
+
+- `DeckScreenShare-SteamOS.flatpak`
+- `DeckScreenShare-Windows-x64.zip`
 
 ## Container Compatibility
 

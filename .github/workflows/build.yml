@@ -1,0 +1,113 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flatpak:
+    name: SteamOS Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: DeckScreenShare-SteamOS.flatpak
+          manifest-path: flatpak/io.github.deckscreenshare.Agent.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamos-flatpak
+          path: DeckScreenShare-SteamOS.flatpak
+          if-no-files-found: error
+
+  windows:
+    name: Windows receiver
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish self-contained receiver
+        shell: pwsh
+        run: |
+          dotnet publish src/DeckScreenShare.Receiver/DeckScreenShare.Receiver.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o dist/windows-receiver
+
+      - name: Bundle FFmpeg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+            -OutFile "dist/ffmpeg.zip"
+          Expand-Archive -LiteralPath "dist/ffmpeg.zip" -DestinationPath "dist/ffmpeg"
+          $ffmpegRoot = Get-ChildItem "dist/ffmpeg" -Directory | Select-Object -First 1
+          Copy-Item "$($ffmpegRoot.FullName)/bin/ffmpeg.exe" "dist/windows-receiver/ffmpeg.exe"
+          Copy-Item "$($ffmpegRoot.FullName)/LICENSE" "dist/windows-receiver/FFMPEG-LICENSE.txt"
+          Copy-Item "README.md" "dist/windows-receiver/README.md"
+          Copy-Item "LICENSE" "dist/windows-receiver/LICENSE.txt"
+          Compress-Archive -Path "dist/windows-receiver/*" `
+            -DestinationPath "dist/DeckScreenShare-Windows-x64.zip"
+
+      - name: Upload Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-receiver
+          path: dist/DeckScreenShare-Windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - flatpak
+      - windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Deck Screen Share ${GITHUB_REF_NAME}" \
+            --generate-notes
+
