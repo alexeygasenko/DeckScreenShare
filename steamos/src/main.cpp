@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 8;
-constexpr const char* kAppVersion = "0.1.10";
+constexpr int kProtocolVersion = 9;
+constexpr const char* kAppVersion = "0.1.11";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -265,7 +265,7 @@ gboolean link_pipewire_nodes(gpointer) {
   if (state.capture == nullptr || state.ffmpeg == nullptr) return G_SOURCE_REMOVE;
   state.link_attempts++;
   const std::vector<std::string> args = {
-      "pw-link", "-L", "gamescope", "gst-launch-1.0"};
+      "pw-link", "-L", "-w", "gamescope", "gst-launch-1.0"};
   std::vector<const gchar*> argv;
   for (const auto& arg : args) argv.push_back(arg.c_str());
   argv.push_back(nullptr);
@@ -280,15 +280,9 @@ gboolean link_pipewire_nodes(gpointer) {
       g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
   g_object_unref(launcher);
   if (process != nullptr) {
-    g_subprocess_wait(process, nullptr, nullptr);
-    const bool linked =
-        g_subprocess_get_if_exited(process) &&
-        g_subprocess_get_exit_status(process) == 0;
+    write_log("Started Gamescope PipeWire link attempt");
     g_object_unref(process);
-    if (linked) {
-      write_log("Linked Gamescope PipeWire output to GStreamer input");
-      return G_SOURCE_REMOVE;
-    }
+    return G_SOURCE_REMOVE;
   }
   g_clear_error(&error);
   return state.link_attempts < 50 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;

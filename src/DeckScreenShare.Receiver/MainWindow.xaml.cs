@@ -182,15 +182,17 @@ public partial class MainWindow : Window
         }
 
         var diagnostics = await _agent.GetDiagnosticsAsync(settings.DeckHost, settings.DeckPort);
-        var diagnosticDetails = new[]
+        _settingsStore.SaveDiagnostics(diagnostics);
+        var errorDetails = new[]
         {
             diagnostics.CaptureStderr?.Trim(),
-            diagnostics.FfmpegStderr?.Trim(),
-            diagnostics.PipewireNodes?.Trim()
+            diagnostics.FfmpegStderr?.Trim()
         }.Where(value => !string.IsNullOrWhiteSpace(value));
+        var errorSuffix = string.Join("\n\n", errorDetails);
         throw new TimeoutException(
-            "The SteamOS agent is running, but no video frame reached this PC.\n\n" +
-            string.Join("\n\n", diagnosticDetails));
+            "The SteamOS agent is running, but no video frame reached this PC. " +
+            $"Full diagnostics were saved to:\n{_settingsStore.DiagnosticsPath}" +
+            (string.IsNullOrWhiteSpace(errorSuffix) ? "" : $"\n\n{errorSuffix}"));
     }
 
     private AppSettings ReadSettings() => new()

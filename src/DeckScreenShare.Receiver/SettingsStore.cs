@@ -16,9 +16,11 @@ public sealed class SettingsStore
         Directory.CreateDirectory(directory);
         _path = Path.Combine(directory, "settings.json");
         PreviewPath = Path.Combine(directory, "preview.jpg");
+        DiagnosticsPath = Path.Combine(directory, "diagnostics.txt");
     }
 
     public string PreviewPath { get; }
+    public string DiagnosticsPath { get; }
 
     public AppSettings Load()
     {
@@ -43,5 +45,14 @@ public sealed class SettingsStore
         var temporaryPath = _path + ".tmp";
         File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings, JsonOptions));
         File.Move(temporaryPath, _path, true);
+    }
+
+    public void SaveDiagnostics(AgentDiagnostics diagnostics)
+    {
+        File.WriteAllText(
+            DiagnosticsPath,
+            $"Capture stderr:\n{diagnostics.CaptureStderr}\n\n" +
+            $"FFmpeg stderr:\n{diagnostics.FfmpegStderr}\n\n" +
+            $"PipeWire nodes:\n{diagnostics.PipewireNodes}\n");
     }
 }
