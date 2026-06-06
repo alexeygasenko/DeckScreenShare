@@ -13,7 +13,7 @@ public sealed class AgentClient : IDisposable
     public async Task CheckAsync(string host, int port)
     {
         var status = await GetStatusAsync(host, port);
-        if (status.ProtocolVersion < 5)
+        if (status.ProtocolVersion < 6)
         {
             throw new InvalidOperationException(
                 "An older SteamOS agent is still running. Fully exit Deck Screen Share on the Deck, " +
@@ -29,6 +29,15 @@ public sealed class AgentClient : IDisposable
         await EnsureSuccessAsync(response);
         return await response.Content.ReadFromJsonAsync<AgentStatus>()
             ?? throw new HttpRequestException("SteamOS agent returned an empty status response.");
+    }
+
+    public async Task<AgentDiagnostics> GetDiagnosticsAsync(string host, int port)
+    {
+        var baseUrl = $"http://{host}:{port}";
+        using var response = await _http.GetAsync($"{baseUrl}/api/diagnostics");
+        await EnsureSuccessAsync(response);
+        return await response.Content.ReadFromJsonAsync<AgentDiagnostics>()
+            ?? throw new HttpRequestException("SteamOS agent returned an empty diagnostics response.");
     }
 
     public async Task StartAsync(string host, int port, StreamSettings settings)

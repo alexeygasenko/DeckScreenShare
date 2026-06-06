@@ -181,9 +181,16 @@ public partial class MainWindow : Window
             await Task.Delay(350);
         }
 
+        var diagnostics = await _agent.GetDiagnosticsAsync(settings.DeckHost, settings.DeckPort);
+        var diagnosticDetails = new[]
+        {
+            diagnostics.CaptureStderr?.Trim(),
+            diagnostics.FfmpegStderr?.Trim(),
+            diagnostics.PipewireNodes?.Trim()
+        }.Where(value => !string.IsNullOrWhiteSpace(value));
         throw new TimeoutException(
-            "The SteamOS agent is running, but no video frame reached this PC. " +
-            "Check the This PC IP address and allow inbound TCP port 9000 in Windows Firewall.");
+            "The SteamOS agent is running, but no video frame reached this PC.\n\n" +
+            string.Join("\n\n", diagnosticDetails));
     }
 
     private AppSettings ReadSettings() => new()

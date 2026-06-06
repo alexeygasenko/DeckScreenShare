@@ -41,6 +41,11 @@ public sealed record AgentStatus(
     [property: JsonPropertyName("protocol_version")] int ProtocolVersion,
     [property: JsonPropertyName("app_version")] string? AppVersion);
 
+public sealed record AgentDiagnostics(
+    [property: JsonPropertyName("pipewire_nodes")] string? PipewireNodes,
+    [property: JsonPropertyName("capture_stderr")] string? CaptureStderr,
+    [property: JsonPropertyName("ffmpeg_stderr")] string? FfmpegStderr);
+
 public sealed class AppSettings
 {
     public string DeckHost { get; set; } = "192.168.1.50";
