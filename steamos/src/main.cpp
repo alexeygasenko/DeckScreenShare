@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 13;
-constexpr const char* kAppVersion = "0.1.15";
+constexpr int kProtocolVersion = 14;
+constexpr const char* kAppVersion = "0.1.16";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -130,62 +130,6 @@ std::string file_contents(const std::string& path) {
   std::string contents = data ? std::string(data, size) : "";
   g_free(data);
   return contents;
-}
-
-std::string pipewire_nodes() {
-  const std::vector<std::string> args = {"pw-cli", "list-objects", "Node"};
-  std::vector<const gchar*> argv;
-  for (const auto& arg : args) argv.push_back(arg.c_str());
-  argv.push_back(nullptr);
-
-  GSubprocessLauncher* launcher = g_subprocess_launcher_new(
-      static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE |
-                                    G_SUBPROCESS_FLAGS_STDERR_PIPE));
-  g_subprocess_launcher_setenv(launcher, "PIPEWIRE_REMOTE",
-                               "pipewire-0-manager", TRUE);
-  GError* error = nullptr;
-  GSubprocess* process =
-      g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
-  g_object_unref(launcher);
-  if (process == nullptr) {
-    const std::string message = error ? error->message : "Failed to start pw-cli";
-    g_clear_error(&error);
-    return message;
-  }
-
-  gchar* stdout_data = nullptr;
-  gchar* stderr_data = nullptr;
-  g_subprocess_communicate_utf8(process, nullptr, nullptr, &stdout_data,
-                                &stderr_data, &error);
-  std::string output = stdout_data ? stdout_data : "";
-  if (output.empty() && stderr_data != nullptr) output = stderr_data;
-  if (error != nullptr) output = error->message;
-  g_free(stdout_data);
-  g_free(stderr_data);
-  g_clear_error(&error);
-  g_object_unref(process);
-  constexpr std::size_t kMaxOutputLength = 30000;
-  if (output.size() > kMaxOutputLength) output.resize(kMaxOutputLength);
-  return output;
-}
-
-int gamescope_node_id() {
-  const std::string nodes = pipewire_nodes();
-  std::istringstream lines(nodes);
-  std::string line;
-  int current_id = -1;
-  while (std::getline(lines, line)) {
-    const auto id_position = line.find("id ");
-    if (id_position != std::string::npos) {
-      std::istringstream value(line.substr(id_position + 3));
-      value >> current_id;
-    }
-    if (current_id >= 0 &&
-        line.find("node.name = \"gamescope\"") != std::string::npos) {
-      return current_id;
-    }
-  }
-  throw std::runtime_error("Gamescope PipeWire video node is unavailable");
 }
 
 std::string pipewire_command_output(const std::vector<std::string>& args) {
@@ -306,8 +250,8 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const std::string pipeline =
       json_string(config, "pipewire_pipeline", "vaapi");
   std::vector<std::string> args = {
-      "gst-launch-1.0", "-q", "pipewiresrc",
-      "path=" + std::to_string(gamescope_node_id()), "do-timestamp=true"};
+      "gst-launch-1.0", "-q", "pipewiresrc", "target-object=gamescope",
+      "do-timestamp=true"};
   if (pipeline == "vaapi") {
     append(args, {"!", "vapostproc", "!", "video/x-raw,format=I420"});
   } else if (pipeline == "vulkan") {
@@ -526,10 +470,8 @@ std::string status_json() {
 }
 
 std::string diagnostics_json() {
-  return "{\"pipewire_nodes\":\"" + escape_json(pipewire_nodes()) +
-         "\",\"pipewire_ports\":\"" +
-         escape_json(pipewire_command_output({"pw-link", "-iolI"})) +
-         "\",\"capture_stderr\":\"" +
+  return std::string("{\"pipewire_nodes\":\"\",\"pipewire_ports\":\"\",") +
+         "\"capture_stderr\":\"" +
          escape_json(file_contents(state.capture_error_path)) +
          "\",\"ffmpeg_stderr\":\"" +
          escape_json(file_contents(state.ffmpeg_error_path)) + "\"}";
