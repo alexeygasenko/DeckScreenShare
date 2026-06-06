@@ -8,6 +8,7 @@ public sealed record StreamSettings(
     [property: JsonPropertyName("codec")] string Codec,
     [property: JsonPropertyName("backend")] string Backend,
     [property: JsonPropertyName("capture_mode")] string CaptureMode,
+    [property: JsonPropertyName("pipewire_pipeline")] string PipewirePipeline,
     [property: JsonPropertyName("fps")] int Fps,
     [property: JsonPropertyName("video_bitrate_kbps")] int VideoBitrateKbps,
     [property: JsonPropertyName("audio_bitrate_kbps")] int AudioBitrateKbps,

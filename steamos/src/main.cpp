@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 14;
-constexpr const char* kAppVersion = "0.1.16";
+constexpr int kProtocolVersion = 15;
+constexpr const char* kAppVersion = "0.1.17";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -164,6 +164,26 @@ std::string pipewire_command_output(const std::vector<std::string>& args) {
   return output;
 }
 
+int gamescope_node_id() {
+  const std::string nodes =
+      pipewire_command_output({"pw-cli", "list-objects", "Node"});
+  std::istringstream lines(nodes);
+  std::string line;
+  int current_id = -1;
+  while (std::getline(lines, line)) {
+    const auto id_position = line.find("id ");
+    if (id_position != std::string::npos) {
+      std::istringstream value(line.substr(id_position + 3));
+      value >> current_id;
+    }
+    if (current_id >= 0 &&
+        line.find("node.name = \"gamescope\"") != std::string::npos) {
+      return current_id;
+    }
+  }
+  throw std::runtime_error("Gamescope PipeWire video node is unavailable");
+}
+
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string codec = json_string(config, "codec", "h264");
   const std::string backend = json_string(config, "backend", "software");
@@ -250,8 +270,8 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const std::string pipeline =
       json_string(config, "pipewire_pipeline", "vaapi");
   std::vector<std::string> args = {
-      "gst-launch-1.0", "-q", "pipewiresrc", "target-object=gamescope",
-      "do-timestamp=true"};
+      "gst-launch-1.0", "-q", "pipewiresrc",
+      "path=" + std::to_string(gamescope_node_id()), "do-timestamp=true"};
   if (pipeline == "vaapi") {
     append(args, {"!", "vapostproc", "!", "video/x-raw,format=I420"});
   } else if (pipeline == "vulkan") {

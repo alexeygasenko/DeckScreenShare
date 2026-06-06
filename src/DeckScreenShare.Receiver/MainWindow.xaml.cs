@@ -210,7 +210,9 @@ public partial class MainWindow : Window
     };
 
     private static StreamSettings BuildStreamSettings(AppSettings settings) => new(
-        settings.ReceiverHost, SrtPort, settings.Codec, settings.Backend, settings.CaptureMode,
+        settings.ReceiverHost, SrtPort, settings.Codec,
+        settings.CaptureMode == "pipewire" ? "vaapi" : settings.Backend,
+        settings.CaptureMode, "vaapi",
         settings.Fps, settings.VideoBitrateKbps, settings.AudioBitrateKbps, settings.LatencyMs,
         settings.Size, settings.Display, settings.AudioSource, settings.DrmDevice,
         settings.VaapiDevice);
@@ -225,6 +227,8 @@ public partial class MainWindow : Window
         Select(CodecBox, settings.Codec);
         if (settings.CaptureMode == "kmsgrab")
             settings.CaptureMode = "pipewire";
+        if (settings.CaptureMode == "pipewire")
+            settings.Backend = "vaapi";
         Select(BackendBox, settings.CaptureMode == "kmsgrab" && settings.Backend == "software"
             ? "vaapi"
             : settings.Backend);
