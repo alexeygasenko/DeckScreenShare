@@ -1,0 +1,19 @@
+app-id: io.github.deckscreenshare.Agent
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: deck-screen-share-agent
+
+finish-args:
+  - --share=network
+  - --socket=pulseaudio
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=all
+
+modules:
+  - name: deck-screen-share-agent
+    buildsystem: meson
+    sources:
+      - type: dir
+        path: ../steamos

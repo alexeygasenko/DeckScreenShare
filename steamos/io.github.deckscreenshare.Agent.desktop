@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Deck Screen Share
+Comment=Stream the Steam Deck screen to a Windows receiver
+Exec=deck-screen-share-agent
+Icon=io.github.deckscreenshare.Agent
+Terminal=false
+Categories=Game;AudioVideo;
+StartupNotify=true

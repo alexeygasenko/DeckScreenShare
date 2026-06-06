@@ -1,0 +1,7 @@
+bin/
+obj/
+recordings/
+.deck-preview.jpg
+.flatpak-builder/
+build-flatpak/
+dist/
