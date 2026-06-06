@@ -18,6 +18,11 @@
   <launchable type="desktop-id">io.github.deckscreenshare.Agent.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.4" date="2026-06-06">
+      <description>
+        <p>Adds headless Gaming Mode support, version reporting, and improved capture diagnostics.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-06-06">
       <description>
         <p>Adds persistent Windows receiver settings and preview-only connection testing.</p>

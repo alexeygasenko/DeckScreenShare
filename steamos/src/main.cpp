@@ -14,6 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
+constexpr int kProtocolVersion = 3;
+constexpr const char* kAppVersion = "0.1.4";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -23,9 +25,34 @@ struct AppState {
   std::string command_display;
   std::string last_error;
   int exit_code = 0;
+  bool gtk_available = false;
 };
 
 AppState state;
+
+void write_log(const std::string& message) {
+  const std::string directory =
+      std::string(g_get_user_data_dir()) + "/DeckScreenShare";
+  g_mkdir_with_parents(directory.c_str(), 0755);
+  const std::string path = directory + "/agent.log";
+  GDateTime* now = g_date_time_new_now_local();
+  gchar* timestamp = g_date_time_format(now, "%Y-%m-%d %H:%M:%S");
+  const std::string line =
+      std::string(timestamp ? timestamp : "") + " " + message + "\n";
+  gchar* existing_data = nullptr;
+  gsize existing_size = 0;
+  g_file_get_contents(path.c_str(), &existing_data, &existing_size, nullptr);
+  std::string contents = existing_data ? existing_data : "";
+  g_free(existing_data);
+  contents += line;
+  constexpr std::size_t kMaxLogLength = 100000;
+  if (contents.size() > kMaxLogLength) {
+    contents.erase(0, contents.size() - kMaxLogLength);
+  }
+  g_file_set_contents(path.c_str(), contents.c_str(), contents.size(), nullptr);
+  g_free(timestamp);
+  g_date_time_unref(now);
+}
 
 std::string json_string(JsonObject* object, const char* key,
                         const char* fallback = "") {
@@ -49,6 +76,11 @@ int json_int(JsonObject* object, const char* key, int fallback, int minimum,
 void append(std::vector<std::string>& args,
             std::initializer_list<std::string> values) {
   args.insert(args.end(), values.begin(), values.end());
+}
+
+std::string default_drm_device() {
+  return g_file_test("/dev/dri/card1", G_FILE_TEST_EXISTS) ? "/dev/dri/card1"
+                                                           : "/dev/dri/card0";
 }
 
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
@@ -84,7 +116,7 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
       "ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"};
   if (capture_mode == "kmsgrab") {
     append(args, {"-f", "kmsgrab", "-device",
-                  json_string(config, "drm_device", "/dev/dri/card0"),
+                  json_string(config, "drm_device", default_drm_device().c_str()),
                   "-framerate", std::to_string(fps), "-i", "-"});
   } else if (capture_mode == "x11grab") {
     append(args, {"-f", "x11grab", "-draw_mouse", "1", "-framerate",
@@ -130,6 +162,7 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
 }
 
 void refresh_status() {
+  if (state.status_label == nullptr || state.command_label == nullptr) return;
   const bool running = state.ffmpeg != nullptr;
   gtk_label_set_text(GTK_LABEL(state.status_label),
                      running ? "Status: streaming" : "Status: ready");
@@ -163,6 +196,8 @@ void process_exited(GObject* source, GAsyncResult* result, gpointer) {
     state.exit_code = g_subprocess_get_if_exited(process)
                           ? g_subprocess_get_exit_status(process)
                           : -1;
+    write_log("FFmpeg exited with code " + std::to_string(state.exit_code) +
+              ": " + state.last_error);
     g_clear_object(&state.ffmpeg);
     state.command_display.clear();
     refresh_status();
@@ -198,6 +233,7 @@ void start_stream(JsonObject* config) {
     throw std::runtime_error(message);
   }
   state.command_display = display.str();
+  write_log("Starting FFmpeg: " + state.command_display);
   refresh_status();
   g_subprocess_communicate_utf8_async(state.ffmpeg, nullptr, nullptr,
                                       process_exited, nullptr);
@@ -230,7 +266,9 @@ std::string escape_json(const std::string& text) {
 std::string status_json() {
   return std::string("{\"running\":") + (state.ffmpeg ? "true" : "false") +
          ",\"last_error\":\"" + escape_json(state.last_error) +
-         "\",\"exit_code\":" + std::to_string(state.exit_code) + "}";
+         "\",\"exit_code\":" + std::to_string(state.exit_code) +
+         ",\"protocol_version\":" + std::to_string(kProtocolVersion) +
+         ",\"app_version\":\"" + kAppVersion + "\"}";
 }
 
 void send_response(GOutputStream* output, int status, const std::string& body) {
@@ -419,7 +457,9 @@ void window_destroyed(GtkWidget*, gpointer) {
 
 GtkWidget* create_window() {
   GtkWidget* window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  gtk_window_set_title(GTK_WINDOW(window), "Deck Screen Share");
+  const std::string window_title =
+      "Deck Screen Share " + std::string(kAppVersion);
+  gtk_window_set_title(GTK_WINDOW(window), window_title.c_str());
   gtk_window_set_default_size(GTK_WINDOW(window), 560, 320);
   gtk_container_set_border_width(GTK_CONTAINER(window), 22);
   g_signal_connect(window, "destroy", G_CALLBACK(window_destroyed), nullptr);
@@ -429,7 +469,8 @@ GtkWidget* create_window() {
 
   GtkWidget* title = gtk_label_new(nullptr);
   gtk_label_set_markup(GTK_LABEL(title),
-                       "<span size='x-large' weight='bold'>Deck Screen Share</span>");
+                       ("<span size='x-large' weight='bold'>Deck Screen Share " +
+                        std::string(kAppVersion) + "</span>").c_str());
   gtk_label_set_xalign(GTK_LABEL(title), 0);
   gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
 
@@ -464,7 +505,9 @@ GtkWidget* create_window() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  gtk_init(&argc, &argv);
+  state.gtk_available = gtk_init_check(&argc, &argv);
+  write_log(std::string("Starting Deck Screen Share ") + kAppVersion +
+            (state.gtk_available ? " with GTK display" : " in headless mode"));
 
   GError* error = nullptr;
   state.service = g_socket_service_new();
@@ -472,6 +515,16 @@ int main(int argc, char** argv) {
                                        kAgentPort, nullptr, &error)) {
     g_printerr("Cannot listen on port %u: %s\n", kAgentPort,
                error ? error->message : "unknown error");
+    write_log(std::string("Cannot listen on port ") + std::to_string(kAgentPort) +
+              ": " + (error ? error->message : "unknown error"));
+    if (state.gtk_available) {
+      GtkWidget* dialog = gtk_message_dialog_new(
+          nullptr, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+          "Cannot listen on port %u: %s", kAgentPort,
+          error ? error->message : "unknown error");
+      gtk_dialog_run(GTK_DIALOG(dialog));
+      gtk_widget_destroy(dialog);
+    }
     g_clear_error(&error);
     return 1;
   }
@@ -479,9 +532,15 @@ int main(int argc, char** argv) {
                    nullptr);
   g_socket_service_start(state.service);
 
-  GtkWidget* window = create_window();
-  gtk_widget_show_all(window);
-  gtk_main();
+  if (state.gtk_available) {
+    GtkWidget* window = create_window();
+    gtk_widget_show_all(window);
+    gtk_main();
+  } else {
+    GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
+    g_main_loop_run(loop);
+    g_main_loop_unref(loop);
+  }
   g_clear_object(&state.service);
   return 0;
 }

@@ -14,7 +14,9 @@ public sealed record StreamSettings(
     [property: JsonPropertyName("latency_ms")] int LatencyMs,
     [property: JsonPropertyName("size")] string Size,
     [property: JsonPropertyName("display")] string Display,
-    [property: JsonPropertyName("audio_source")] string AudioSource);
+    [property: JsonPropertyName("audio_source")] string AudioSource,
+    [property: JsonPropertyName("drm_device")] string DrmDevice,
+    [property: JsonPropertyName("vaapi_device")] string VaapiDevice);
 
 public sealed record RecordingSettings(
     string FfmpegPath,
@@ -35,7 +37,9 @@ public sealed record PreviewSettings(
 public sealed record AgentStatus(
     [property: JsonPropertyName("running")] bool Running,
     [property: JsonPropertyName("last_error")] string? LastError,
-    [property: JsonPropertyName("exit_code")] int? ExitCode);
+    [property: JsonPropertyName("exit_code")] int? ExitCode,
+    [property: JsonPropertyName("protocol_version")] int ProtocolVersion,
+    [property: JsonPropertyName("app_version")] string? AppVersion);
 
 public sealed class AppSettings
 {
@@ -43,7 +47,7 @@ public sealed class AppSettings
     public int DeckPort { get; set; } = 8765;
     public string ReceiverHost { get; set; } = "";
     public string Codec { get; set; } = "h264";
-    public string Backend { get; set; } = "software";
+    public string Backend { get; set; } = "vaapi";
     public int VideoBitrateKbps { get; set; } = 8000;
     public int AudioBitrateKbps { get; set; } = 160;
     public int Fps { get; set; } = 60;
@@ -53,5 +57,7 @@ public sealed class AppSettings
     public string Size { get; set; } = "1280x800";
     public string Display { get; set; } = ":0.0";
     public string AudioSource { get; set; } = "@DEFAULT_MONITOR@";
+    public string DrmDevice { get; set; } = "/dev/dri/card1";
+    public string VaapiDevice { get; set; } = "/dev/dri/renderD128";
     public string OutputFolder { get; set; } = "";
 }

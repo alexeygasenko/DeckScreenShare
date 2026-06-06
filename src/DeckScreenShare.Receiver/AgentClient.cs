@@ -12,10 +12,14 @@ public sealed class AgentClient : IDisposable
 
     public async Task CheckAsync(string host, int port)
     {
-        var baseUrl = $"http://{host}:{port}";
-        using var response = await _http.GetAsync($"{baseUrl}/api/status");
-        await EnsureSuccessAsync(response);
-        _baseUrl = baseUrl;
+        var status = await GetStatusAsync(host, port);
+        if (status.ProtocolVersion < 3)
+        {
+            throw new InvalidOperationException(
+                "An older SteamOS agent is still running. Fully exit Deck Screen Share on the Deck, " +
+                "install the latest Flatpak, then launch it again.");
+        }
+        _baseUrl = $"http://{host}:{port}";
     }
 
     public async Task<AgentStatus> GetStatusAsync(string host, int port)

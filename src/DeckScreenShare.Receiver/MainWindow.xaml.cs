@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
@@ -25,6 +26,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        VersionText.Text = version is null
+            ? ""
+            : $"Windows receiver {version.Major}.{version.Minor}.{version.Build}";
         ApplySettings(_settingsStore.Load());
         _receiver.Log += message => Dispatcher.Invoke(() =>
         {
@@ -197,13 +202,16 @@ public partial class MainWindow : Window
         Size = Required(SizeBox.Text, "Display size"),
         Display = Required(DisplayBox.Text, "Display"),
         AudioSource = Required(AudioSourceBox.Text, "Audio source"),
+        DrmDevice = Required(DrmDeviceBox.Text, "DRM device"),
+        VaapiDevice = Required(VaapiDeviceBox.Text, "VAAPI device"),
         OutputFolder = OutputFolderBox.Text.Trim()
     };
 
     private static StreamSettings BuildStreamSettings(AppSettings settings) => new(
         settings.ReceiverHost, SrtPort, settings.Codec, settings.Backend, settings.CaptureMode,
         settings.Fps, settings.VideoBitrateKbps, settings.AudioBitrateKbps, settings.LatencyMs,
-        settings.Size, settings.Display, settings.AudioSource);
+        settings.Size, settings.Display, settings.AudioSource, settings.DrmDevice,
+        settings.VaapiDevice);
 
     private void ApplySettings(AppSettings settings)
     {
@@ -213,7 +221,9 @@ public partial class MainWindow : Window
             ? GetLocalIp()
             : settings.ReceiverHost;
         Select(CodecBox, settings.Codec);
-        Select(BackendBox, settings.Backend);
+        Select(BackendBox, settings.CaptureMode == "kmsgrab" && settings.Backend == "software"
+            ? "vaapi"
+            : settings.Backend);
         VideoBitrateBox.Text = settings.VideoBitrateKbps.ToString();
         AudioBitrateBox.Text = settings.AudioBitrateKbps.ToString();
         FpsBox.Text = settings.Fps.ToString();
@@ -223,6 +233,8 @@ public partial class MainWindow : Window
         SizeBox.Text = settings.Size;
         DisplayBox.Text = settings.Display;
         AudioSourceBox.Text = settings.AudioSource;
+        DrmDeviceBox.Text = settings.DrmDevice;
+        VaapiDeviceBox.Text = settings.VaapiDevice;
         OutputFolderBox.Text = string.IsNullOrWhiteSpace(settings.OutputFolder)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "DeckScreenShare")
             : settings.OutputFolder;

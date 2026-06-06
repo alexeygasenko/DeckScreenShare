@@ -173,6 +173,7 @@
           <TextBlock Text="Deck Screen Share" FontSize="27" FontWeight="SemiBold"/>
           <TextBlock Text="Capture your Steam Deck over the local network"
                      Foreground="{StaticResource MutedText}" Margin="1,3,0,0"/>
+          <TextBlock x:Name="VersionText" Foreground="#748198" FontSize="10" Margin="1,3,0,0"/>
         </StackPanel>
         <Border DockPanel.Dock="Right" CornerRadius="16" Padding="13,8"
                 Background="#24FFFFFF" BorderBrush="#45FFFFFF" BorderThickness="1"
@@ -220,7 +221,7 @@
                 <StackPanel Margin="5,0,0,0">
                   <TextBlock Text="Encoder" Style="{StaticResource FieldLabel}"/>
                   <ComboBox x:Name="BackendBox" SelectedIndex="0">
-                    <ComboBoxItem Content="software"/><ComboBoxItem Content="vaapi"/>
+                    <ComboBoxItem Content="vaapi"/><ComboBoxItem Content="software"/>
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Margin="0,0,5,0">
@@ -263,6 +264,16 @@
               <TextBox x:Name="DisplayBox" Text=":0.0"/>
               <TextBlock Text="Audio source" Style="{StaticResource FieldLabel}"/>
               <TextBox x:Name="AudioSourceBox" Text="@DEFAULT_MONITOR@"/>
+              <UniformGrid Columns="2">
+                <StackPanel Margin="0,0,5,0">
+                  <TextBlock Text="DRM device" Style="{StaticResource FieldLabel}"/>
+                  <TextBox x:Name="DrmDeviceBox" Text="/dev/dri/card1"/>
+                </StackPanel>
+                <StackPanel Margin="5,0,0,0">
+                  <TextBlock Text="VAAPI device" Style="{StaticResource FieldLabel}"/>
+                  <TextBox x:Name="VaapiDeviceBox" Text="/dev/dri/renderD128"/>
+                </StackPanel>
+              </UniformGrid>
               <TextBlock Text="Recording folder" Style="{StaticResource FieldLabel}"/>
               <DockPanel LastChildFill="True">
                 <Button DockPanel.Dock="Right" Content="Browse" Click="Browse_Click"

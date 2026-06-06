@@ -76,12 +76,24 @@ Open Steam in Desktop Mode:
 The Flatpak listens for receiver commands on TCP port `8765` and sends SRT
 video to the Windows receiver on UDP port `9000`.
 
+When Steam Gaming Mode does not provide a graphical display, the SteamOS
+application runs headless instead of exiting. Its persistent diagnostic log is
+stored at:
+
+```text
+~/.var/app/io.github.deckscreenshare.Agent/data/DeckScreenShare/agent.log
+```
+
 ## SteamOS Capture Notes
 
 `kmsgrab` is the default capture mode for Gaming Mode. It needs direct access to
 DRM devices, so the Flatpak requests broad device access with `--device=all`.
 SteamOS or Gamescope updates may still restrict DRM capture. Test capture on the
 target SteamOS version before relying on it.
+
+The default Gaming Mode settings use VAAPI and `/dev/dri/card1` when available,
+falling back to `/dev/dri/card0`. Both DRM and VAAPI device paths can be changed
+in the Windows receiver if the Deck exposes different device nodes.
 
 For Desktop Mode testing, select `x11grab` in the Windows receiver.
 
