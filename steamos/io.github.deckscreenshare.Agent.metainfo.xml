@@ -18,6 +18,11 @@
   <launchable type="desktop-id">io.github.deckscreenshare.Agent.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.9" date="2026-06-07">
+      <description>
+        <p>Imports Gamescope DMA-BUF frames through OpenGL before passing them to FFmpeg.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-06-07">
       <description>
         <p>Adds live PipeWire and capture diagnostics for failed preview connections.</p>
