@@ -14,8 +14,8 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 12;
-constexpr const char* kAppVersion = "0.1.14";
+constexpr int kProtocolVersion = 13;
+constexpr const char* kAppVersion = "0.1.15";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -303,12 +303,32 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
 
 std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const int fps = json_int(config, "fps", 60, 1, 240);
-  return {"gst-launch-1.0", "-q", "pipewiresrc",
-          "path=" + std::to_string(gamescope_node_id()),
-          "always-copy=true", "do-timestamp=true", "!", "queue", "!",
-          "videoconvert", "!", "videorate", "!",
-          "video/x-raw,format=I420,framerate=" + std::to_string(fps) + "/1",
-          "!", "y4menc", "!", "fdsink", "fd=1"};
+  const std::string pipeline =
+      json_string(config, "pipewire_pipeline", "vaapi");
+  std::vector<std::string> args = {
+      "gst-launch-1.0", "-q", "pipewiresrc",
+      "path=" + std::to_string(gamescope_node_id()), "do-timestamp=true"};
+  if (pipeline == "vaapi") {
+    append(args, {"!", "vapostproc", "!", "video/x-raw,format=I420"});
+  } else if (pipeline == "vulkan") {
+    append(args, {"!", "vulkanupload", "!", "vulkancolorconvert", "!",
+                  "vulkandownload", "!", "video/x-raw,format=RGBA", "!",
+                  "videoconvert"});
+  } else if (pipeline == "opengl") {
+    append(args, {"!", "glupload", "!", "glcolorconvert", "!", "gldownload",
+                  "!", "video/x-raw,format=RGBA", "!", "videoconvert"});
+  } else if (pipeline == "cpu") {
+    args.push_back("always-copy=true");
+    append(args, {"!", "queue", "!", "videoconvert"});
+  } else {
+    throw std::runtime_error(
+        "pipewire_pipeline must be vaapi, vulkan, opengl, or cpu");
+  }
+  append(args, {"!", "videorate", "!",
+                "video/x-raw,format=I420,framerate=" + std::to_string(fps) +
+                    "/1",
+                "!", "y4menc", "!", "fdsink", "fd=1"});
+  return args;
 }
 
 void refresh_status() {
@@ -613,7 +633,10 @@ std::string encoder_capabilities() {
     first = false;
   }
   json << "],\"pipewire_manager_available\":"
-       << (pipewire_manager_available() ? "true" : "false") << "}";
+       << (pipewire_manager_available() ? "true" : "false")
+       << ",\"gstreamer_va\":\""
+       << escape_json(pipewire_command_output({"gst-inspect-1.0", "va"}))
+       << "\"}";
   return json.str();
 }
 
