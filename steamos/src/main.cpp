@@ -3,6 +3,7 @@
 #include <json-glib/json-glib.h>
 
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -220,6 +221,41 @@ std::string read_request_body(GDataInputStream* input, gsize content_length) {
   return body;
 }
 
+std::string read_chunked_request_body(GDataInputStream* input) {
+  std::string body;
+  while (true) {
+    gsize length = 0;
+    gchar* line = g_data_input_stream_read_line(input, &length, nullptr, nullptr);
+    if (line == nullptr) throw std::runtime_error("Invalid chunked request body");
+    std::string size_line(line, length);
+    g_free(line);
+    if (!size_line.empty() && size_line.back() == '\r') size_line.pop_back();
+
+    const auto extension = size_line.find(';');
+    if (extension != std::string::npos) size_line.resize(extension);
+    const gsize chunk_size = std::stoul(size_line, nullptr, 16);
+    if (chunk_size == 0) {
+      while (true) {
+        line = g_data_input_stream_read_line(input, &length, nullptr, nullptr);
+        if (line == nullptr || length == 0 ||
+            (length == 1 && line[0] == '\r')) {
+          g_free(line);
+          return body;
+        }
+        g_free(line);
+      }
+    }
+
+    body += read_request_body(input, chunk_size);
+    line = g_data_input_stream_read_line(input, &length, nullptr, nullptr);
+    if (line == nullptr || (length != 0 && !(length == 1 && line[0] == '\r'))) {
+      g_free(line);
+      throw std::runtime_error("Invalid chunk separator");
+    }
+    g_free(line);
+  }
+}
+
 std::string encoder_capabilities() {
   gchar* stdout_data = nullptr;
   GError* error = nullptr;
@@ -267,6 +303,7 @@ gboolean handle_connection(GSocketService*, GSocketConnection* connection,
     request >> method >> path;
 
     gsize content_length = 0;
+    bool chunked = false;
     while (true) {
       gchar* header = g_data_input_stream_read_line(input, &length, nullptr, nullptr);
       if (header == nullptr || length == 0 ||
@@ -276,12 +313,22 @@ gboolean handle_connection(GSocketService*, GSocketConnection* connection,
       }
       const std::string value = header;
       g_free(header);
-      if (value.rfind("Content-Length:", 0) == 0) {
-        content_length = std::stoul(value.substr(15));
+      std::string lower = value;
+      std::transform(lower.begin(), lower.end(), lower.begin(),
+                     [](unsigned char character) {
+                       return static_cast<char>(std::tolower(character));
+                     });
+      if (lower.rfind("content-length:", 0) == 0) {
+        content_length = std::stoul(value.substr(value.find(':') + 1));
+      } else if (lower.rfind("transfer-encoding:", 0) == 0 &&
+                 lower.find("chunked") != std::string::npos) {
+        chunked = true;
       }
     }
 
-    const std::string body = read_request_body(input, content_length);
+    const std::string body =
+        chunked ? read_chunked_request_body(input)
+                : read_request_body(input, content_length);
     if (method == "GET" && path == "/api/status") {
       send_response(output, 200,
                     std::string("{\"running\":") +
