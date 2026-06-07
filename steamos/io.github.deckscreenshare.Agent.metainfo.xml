@@ -18,6 +18,11 @@
   <launchable type="desktop-id">io.github.deckscreenshare.Agent.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.19" date="2026-06-07">
+      <description>
+        <p>Manages a single PipeWire link process and stops it with the stream.</p>
+      </description>
+    </release>
     <release version="0.1.18" date="2026-06-07">
       <description>
         <p>Creates the required Gamescope-to-GStreamer PipeWire port link asynchronously.</p>

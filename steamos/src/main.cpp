@@ -15,7 +15,7 @@ namespace {
 
 constexpr guint kAgentPort = 8765;
 constexpr int kProtocolVersion = 15;
-constexpr const char* kAppVersion = "0.1.18";
+constexpr const char* kAppVersion = "0.1.19";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -23,12 +23,14 @@ struct AppState {
   GSocketService* service = nullptr;
   GSubprocess* ffmpeg = nullptr;
   GSubprocess* capture = nullptr;
+  GSubprocess* link = nullptr;
   std::string command_display;
   std::string last_error;
   std::string ffmpeg_error_path;
   std::string capture_error_path;
   int exit_code = 0;
   int link_attempts = 0;
+  guint link_retry_source = 0;
   bool gtk_available = false;
 };
 
@@ -296,8 +298,25 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
   return args;
 }
 
-gboolean link_pipewire_ports(gpointer) {
-  if (state.capture == nullptr || state.ffmpeg == nullptr) return G_SOURCE_REMOVE;
+gboolean start_pipewire_link(gpointer);
+
+void link_exited(GObject* source, GAsyncResult* result, gpointer) {
+  auto* process = G_SUBPROCESS(source);
+  g_subprocess_wait_finish(process, result, nullptr);
+  if (state.link != process) return;
+  const bool linked = state.capture != nullptr && state.ffmpeg != nullptr;
+  g_clear_object(&state.link);
+  if (linked && state.link_attempts < 30 && state.link_retry_source == 0) {
+    state.link_retry_source = g_timeout_add(200, start_pipewire_link, nullptr);
+  }
+}
+
+gboolean start_pipewire_link(gpointer) {
+  state.link_retry_source = 0;
+  if (state.capture == nullptr || state.ffmpeg == nullptr ||
+      state.link != nullptr) {
+    return G_SOURCE_REMOVE;
+  }
   state.link_attempts++;
   const std::vector<std::string> args = {
       "pw-link", "-L", "gamescope:capture_1", "gst-launch-1.0:input_1"};
@@ -311,12 +330,15 @@ gboolean link_pipewire_ports(gpointer) {
   g_subprocess_launcher_setenv(launcher, "PIPEWIRE_REMOTE",
                                "pipewire-0-manager", TRUE);
   GError* error = nullptr;
-  GSubprocess* process =
-      g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
+  state.link = g_subprocess_launcher_spawnv(launcher, argv.data(), &error);
   g_object_unref(launcher);
-  if (process != nullptr) g_object_unref(process);
+  if (state.link != nullptr) {
+    g_subprocess_wait_async(state.link, nullptr, link_exited, nullptr);
+  } else if (state.link_attempts < 30) {
+    state.link_retry_source = g_timeout_add(200, start_pipewire_link, nullptr);
+  }
   g_clear_error(&error);
-  return state.link_attempts < 30 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+  return G_SOURCE_REMOVE;
 }
 
 void refresh_status() {
@@ -329,6 +351,14 @@ void refresh_status() {
 }
 
 void stop_stream() {
+  if (state.link_retry_source != 0) {
+    g_source_remove(state.link_retry_source);
+    state.link_retry_source = 0;
+  }
+  if (state.link != nullptr) {
+    g_subprocess_force_exit(state.link);
+    g_clear_object(&state.link);
+  }
   if (state.capture != nullptr) {
     g_subprocess_force_exit(state.capture);
     g_clear_object(&state.capture);
@@ -412,6 +442,7 @@ void start_stream(JsonObject* config) {
   state.last_error.clear();
   state.exit_code = 0;
   state.link_attempts = 0;
+  state.link_retry_source = 0;
 
   std::vector<const gchar*> argv;
   std::ostringstream display;
@@ -481,7 +512,7 @@ void start_stream(JsonObject* config) {
   refresh_status();
   g_subprocess_wait_async(state.ffmpeg, nullptr, process_exited, nullptr);
   if (capture_mode == "pipewire") {
-    g_timeout_add(200, link_pipewire_ports, nullptr);
+    state.link_retry_source = g_timeout_add(200, start_pipewire_link, nullptr);
   }
 }
 
@@ -511,6 +542,8 @@ std::string escape_json(const std::string& text) {
 
 std::string status_json() {
   return std::string("{\"running\":") + (state.ffmpeg ? "true" : "false") +
+         ",\"link_running\":" + (state.link ? "true" : "false") +
+         ",\"link_attempts\":" + std::to_string(state.link_attempts) +
          ",\"last_error\":\"" + escape_json(state.last_error) +
          "\",\"exit_code\":" + std::to_string(state.exit_code) +
          ",\"protocol_version\":" + std::to_string(kProtocolVersion) +
