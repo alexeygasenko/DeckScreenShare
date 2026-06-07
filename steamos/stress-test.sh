@@ -12,8 +12,11 @@ meson compile -C /tmp/agent-build >/dev/null
 pipewire >/tmp/pipewire.log 2>&1 &
 sleep 2
 ln -sf "$XDG_RUNTIME_DIR/pipewire-0" "$XDG_RUNTIME_DIR/pipewire-0-manager"
+dbus-run-session -- wireplumber >/tmp/wireplumber.log 2>&1 &
+sleep 2
 
-pulseaudio --start
+pipewire-pulse >/tmp/pipewire-pulse.log 2>&1 &
+sleep 2
 pactl load-module module-null-sink sink_name=deckshare >/dev/null
 
 gst-launch-1.0 -q videotestsrc is-live=true pattern=ball \
@@ -28,27 +31,50 @@ sleep 2
 
 body='{"receiver_host":"127.0.0.1","srt_port":9000,"codec":"h264","backend":"software","capture_mode":"pipewire","pipewire_pipeline":"cpu","fps":60,"video_bitrate_kbps":2000,"audio_bitrate_kbps":96,"latency_ms":120,"size":"1280x800","display":":0.0","audio_source":"deckshare.monitor","drm_device":"/dev/dri/card0","vaapi_device":"/dev/dri/renderD128"}'
 
+ffmpeg -hide_banner -loglevel error -y \
+  -i 'tcp://0.0.0.0:9000?listen=1' -t 0.5 -c copy /tmp/delivery.mkv \
+  >/tmp/receiver.log 2>&1 &
+receiver_pid=$!
+sleep 0.5
+
+curl -fsS -X POST -H 'Content-Type: application/json' \
+  --data "$body" http://127.0.0.1:8765/api/start >/dev/null
+for attempt in $(seq 1 50); do
+  test -s /tmp/delivery.mkv && break
+  sleep 0.1
+done
+
+test -s /tmp/delivery.mkv
+wait "$receiver_pid"
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_type \
+  -of csv=p=0 /tmp/delivery.mkv | grep -qx video
+curl -fsS -X POST -H 'Content-Type: application/json' \
+  --data '{}' http://127.0.0.1:8765/api/stop >/dev/null
+sleep 0.7
+
 for cycle in $(seq 1 15); do
   ffmpeg -hide_banner -loglevel error -y \
-    -i 'tcp://0.0.0.0:9000?listen=1' -t 1 -c copy "/tmp/cycle-$cycle.mkv" \
+    -i 'tcp://0.0.0.0:9000?listen=1' -t 5 -c copy "/tmp/cycle-$cycle.mkv" \
     >/tmp/receiver.log 2>&1 &
-
+  receiver_pid=$!
+  sleep 0.2
   curl -fsS -X POST -H 'Content-Type: application/json' \
     --data "$body" http://127.0.0.1:8765/api/start >/dev/null
-  sleep 1
-
-  link_count=$(pgrep -fc '^pw-link -L gamescope:capture_1 gst-launch-1.0:input_1$' || true)
+  sleep 0.3
+  link_count=$(pgrep -fc '^pw-link -L [0-9]+ [0-9]+$' || true)
   test "$link_count" -le 1
   curl -fsS http://127.0.0.1:8765/api/status >/dev/null
   curl -fsS -X POST -H 'Content-Type: application/json' \
     --data '{}' http://127.0.0.1:8765/api/stop >/dev/null
+  kill "$receiver_pid" 2>/dev/null || true
+  wait "$receiver_pid" 2>/dev/null || true
   sleep 0.3
 
-  link_count=$(pgrep -fc '^pw-link -L gamescope:capture_1 gst-launch-1.0:input_1$' || true)
+  link_count=$(pgrep -fc '^pw-link -L [0-9]+ [0-9]+$' || true)
   test "$link_count" -eq 0
   kill -0 "$agent_pid"
 done
 
 curl -fsS http://127.0.0.1:8765/api/status
 echo
-echo "Completed 15 start/stop cycles without leaked pw-link processes."
+echo "Received a verified video stream and completed 15 start/stop cycles."
