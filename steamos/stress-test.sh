@@ -49,6 +49,13 @@ for delivery in 1; do
   wait "$receiver_pid"
   ffprobe -v error -select_streams v:0 -show_entries stream=codec_type \
     -of csv=p=0 "/tmp/delivery-$delivery.mkv" | grep -qx video
+  unique_frames=$(
+    ffmpeg -hide_banner -loglevel error -i "/tmp/delivery-$delivery.mkv" \
+      -map 0:v:0 -f framemd5 - |
+      awk -F, '!/^#/ {gsub(/ /, "", $NF); print $NF}' |
+      sort -u | wc -l
+  )
+  test "$unique_frames" -gt 3
   curl -fsS -X POST -H 'Content-Type: application/json' \
     --data '{}' http://127.0.0.1:8765/api/stop >/dev/null
   sleep 0.7

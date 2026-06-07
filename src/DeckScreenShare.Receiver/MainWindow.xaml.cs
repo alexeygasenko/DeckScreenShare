@@ -156,9 +156,9 @@ public partial class MainWindow : Window
         while (DateTime.UtcNow < deadline)
         {
             if (File.Exists(_settingsStore.PreviewPath) &&
-                new FileInfo(_settingsStore.PreviewPath).Length > 0)
+                new FileInfo(_settingsStore.PreviewPath).Length > 0 &&
+                RefreshPreview())
             {
-                RefreshPreview();
                 return;
             }
 
@@ -275,10 +275,10 @@ public partial class MainWindow : Window
         _lastLog = "";
     }
 
-    private void RefreshPreview()
+    private bool RefreshPreview()
     {
         if (!File.Exists(_settingsStore.PreviewPath))
-            return;
+            return false;
         try
         {
             using var stream = new FileStream(
@@ -292,9 +292,11 @@ public partial class MainWindow : Window
             image.Freeze();
             PreviewImage.Source = image;
             PreviewHint.Visibility = Visibility.Collapsed;
+            return true;
         }
-        catch (IOException) { }
-        catch (NotSupportedException) { }
+        catch (IOException) { return false; }
+        catch (NotSupportedException) { return false; }
+        catch (FileFormatException) { return false; }
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)

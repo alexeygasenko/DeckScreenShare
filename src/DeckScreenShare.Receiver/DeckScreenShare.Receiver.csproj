@@ -7,6 +7,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>DeckScreenShare</AssemblyName>
     <RootNamespace>DeckScreenShare.Receiver</RootNamespace>
-    <Version>0.1.17</Version>
+    <Version>0.1.22</Version>
   </PropertyGroup>
 </Project>

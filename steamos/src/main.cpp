@@ -15,7 +15,7 @@ namespace {
 
 constexpr guint kAgentPort = 8765;
 constexpr int kProtocolVersion = 15;
-constexpr const char* kAppVersion = "0.1.21";
+constexpr const char* kAppVersion = "0.1.22";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -86,6 +86,18 @@ int json_int(JsonObject* object, const char* key, int fallback, int minimum,
     throw std::runtime_error(std::string(key) + " is outside the allowed range");
   }
   return value;
+}
+
+std::pair<int, int> video_size(JsonObject* config) {
+  std::istringstream value(json_string(config, "size", "1280x800"));
+  int width = 0;
+  int height = 0;
+  char separator = '\0';
+  if (!(value >> width >> separator >> height) || separator != 'x' ||
+      width < 16 || width > 7680 || height < 16 || height > 4320) {
+    throw std::runtime_error("size must use WIDTHxHEIGHT format");
+  }
+  return {width, height};
 }
 
 void append(std::vector<std::string>& args,
@@ -217,6 +229,8 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string receiver_host = json_string(config, "receiver_host");
   const int srt_port = json_int(config, "srt_port", 9000, 1, 65535);
   const int fps = json_int(config, "fps", 60, 1, 240);
+  const std::string timing_filter =
+      "settb=1/" + std::to_string(fps) + ",setpts=N";
   const int video_bitrate =
       json_int(config, "video_bitrate_kbps", 8000, 250, 100000);
   const int audio_bitrate =
@@ -265,12 +279,17 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   if (backend == "vaapi") {
     append(args, {"-vaapi_device",
                   available_device(config, "vaapi_device", "renderD")});
-    append(args, {"-vf", capture_mode == "kmsgrab"
-                             ? "hwmap=derive_device=vaapi,scale_vaapi=format=nv12"
-                             : "format=nv12,hwupload"});
+    const std::string filter =
+        capture_mode == "kmsgrab"
+            ? "hwmap=derive_device=vaapi,scale_vaapi=format=nv12"
+            : (capture_mode == "pipewire" ? timing_filter + "," : "") +
+                  "format=nv12,hwupload";
+    append(args, {"-vf", filter});
   } else {
     if (capture_mode == "kmsgrab") {
       append(args, {"-vf", "hwdownload,format=bgr0"});
+    } else if (capture_mode == "pipewire") {
+      append(args, {"-vf", timing_filter});
     }
     if (encoder == "libx264" || encoder == "libx265") {
       append(args, {"-preset", "veryfast", "-tune", "zerolatency"});
@@ -293,14 +312,20 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
 
 std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const int fps = json_int(config, "fps", 60, 1, 240);
+  const auto [width, height] = video_size(config);
+  const long long data_rate =
+      static_cast<long long>(width) * height * 3 * fps / 2;
+  if (data_rate > G_MAXINT) {
+    throw std::runtime_error("Requested size and FPS are too large");
+  }
   const std::string pipeline =
       json_string(config, "pipewire_pipeline", "vaapi");
   state.capture_node_id = gamescope_node_id();
   std::vector<std::string> args = {
-      "gst-launch-1.0", "-q", "pipewiresrc",
-      "path=" + std::to_string(state.capture_node_id), "do-timestamp=true"};
+      "gst-launch-1.0", "-q", "pipewiresrc", "autoconnect=false",
+      "do-timestamp=true"};
   if (pipeline == "vaapi") {
-    append(args, {"!", "vapostproc", "!", "video/x-raw,format=I420"});
+    append(args, {"!", "vapostproc"});
   } else if (pipeline == "vulkan") {
     append(args, {"!", "vulkanupload", "!", "vulkancolorconvert", "!",
                   "vulkandownload", "!", "video/x-raw,format=RGBA", "!",
@@ -315,10 +340,12 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
     throw std::runtime_error(
         "pipewire_pipeline must be vaapi, vulkan, opengl, or cpu");
   }
-  append(args, {"!", "videorate", "!",
-                "video/x-raw,format=I420,framerate=" + std::to_string(fps) +
-                    "/1",
-                "!", "y4menc", "!", "fdsink", "fd=1"});
+  append(args, {"!", "video/x-raw,format=I420,width=" +
+                           std::to_string(width) + ",height=" +
+                           std::to_string(height),
+                "!", "identity", "datarate=" + std::to_string(data_rate), "!",
+                "clocksync", "sync-to-first=true", "!", "y4menc", "!",
+                "fdsink", "fd=1"});
   return args;
 }
 
