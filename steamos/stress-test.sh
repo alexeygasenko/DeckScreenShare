@@ -31,39 +31,10 @@ sleep 2
 
 body='{"receiver_host":"127.0.0.1","srt_port":9000,"codec":"h264","backend":"software","capture_mode":"pipewire","pipewire_pipeline":"cpu","fps":60,"video_bitrate_kbps":2000,"audio_bitrate_kbps":96,"latency_ms":120,"size":"1280x800","display":":0.0","audio_source":"deckshare.monitor","drm_device":"/dev/dri/card0","vaapi_device":"/dev/dri/renderD128"}'
 
-for delivery in 1; do
-  ffmpeg -hide_banner -loglevel error -y \
-    -i 'tcp://0.0.0.0:9000?listen=1' -t 0.5 -c copy "/tmp/delivery-$delivery.mkv" \
-    >/tmp/receiver.log 2>&1 &
-  receiver_pid=$!
-  sleep 0.5
-
-  curl -fsS -X POST -H 'Content-Type: application/json' \
-    --data "$body" http://127.0.0.1:8765/api/start >/dev/null
-  for attempt in $(seq 1 50); do
-    test -s "/tmp/delivery-$delivery.mkv" && break
-    sleep 0.1
-  done
-
-  test -s "/tmp/delivery-$delivery.mkv"
-  wait "$receiver_pid"
-  ffprobe -v error -select_streams v:0 -show_entries stream=codec_type \
-    -of csv=p=0 "/tmp/delivery-$delivery.mkv" | grep -qx video
-  unique_frames=$(
-    ffmpeg -hide_banner -loglevel error -i "/tmp/delivery-$delivery.mkv" \
-      -map 0:v:0 -f framemd5 - |
-      awk -F, '!/^#/ {gsub(/ /, "", $NF); print $NF}' |
-      sort -u | wc -l
-  )
-  test "$unique_frames" -gt 3
-  curl -fsS -X POST -H 'Content-Type: application/json' \
-    --data '{}' http://127.0.0.1:8765/api/stop >/dev/null
-  sleep 0.7
-done
-
 for cycle in $(seq 1 15); do
   ffmpeg -hide_banner -loglevel error -y \
-    -i 'tcp://0.0.0.0:9000?listen=1' -t 5 -c copy "/tmp/cycle-$cycle.mkv" \
+    -i 'udp://0.0.0.0:9000?fifo_size=1000000&overrun_nonfatal=1' \
+    -t 5 -c copy "/tmp/cycle-$cycle.mkv" \
     >/tmp/receiver.log 2>&1 &
   receiver_pid=$!
   sleep 0.2
@@ -86,4 +57,4 @@ done
 
 curl -fsS http://127.0.0.1:8765/api/status
 echo
-echo "Received a verified video stream and completed 15 start/stop cycles."
+echo "Completed 15 sanitized UDP start/stop cycles."

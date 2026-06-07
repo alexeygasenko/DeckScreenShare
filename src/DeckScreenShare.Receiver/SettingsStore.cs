@@ -15,11 +15,9 @@ public sealed class SettingsStore
             "DeckScreenShare");
         Directory.CreateDirectory(directory);
         _path = Path.Combine(directory, "settings.json");
-        PreviewPath = Path.Combine(directory, "preview.jpg");
         DiagnosticsPath = Path.Combine(directory, "diagnostics.txt");
     }
 
-    public string PreviewPath { get; }
     public string DiagnosticsPath { get; }
 
     public AppSettings Load()

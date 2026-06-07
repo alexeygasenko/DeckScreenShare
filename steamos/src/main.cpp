@@ -1,5 +1,4 @@
 #include <gio/gio.h>
-#include <gtk/gtk.h>
 #include <json-glib/json-glib.h>
 
 #include <algorithm>
@@ -14,12 +13,10 @@
 namespace {
 
 constexpr guint kAgentPort = 8765;
-constexpr int kProtocolVersion = 15;
-constexpr const char* kAppVersion = "0.1.22";
+constexpr int kProtocolVersion = 16;
+constexpr const char* kAppVersion = "0.2.0";
 
 struct AppState {
-  GtkWidget* status_label = nullptr;
-  GtkWidget* command_label = nullptr;
   GSocketService* service = nullptr;
   GSubprocess* ffmpeg = nullptr;
   GSubprocess* capture = nullptr;
@@ -36,7 +33,6 @@ struct AppState {
   int link_input_port = -1;
   guint link_retry_source = 0;
   bool link_established = false;
-  bool gtk_available = false;
 };
 
 AppState state;
@@ -227,10 +223,10 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   const std::string backend = json_string(config, "backend", "software");
   const std::string capture_mode = json_string(config, "capture_mode", "pipewire");
   const std::string receiver_host = json_string(config, "receiver_host");
-  const int srt_port = json_int(config, "srt_port", 9000, 1, 65535);
+  const int srt_port = json_int(config, "srt_port", 9000, 1, 65532);
   const int fps = json_int(config, "fps", 60, 1, 240);
   const std::string timing_filter =
-      "settb=1/" + std::to_string(fps) + ",setpts=N";
+      "settb=AVTB,setpts=N/(" + std::to_string(fps) + "*TB)";
   const int video_bitrate =
       json_int(config, "video_bitrate_kbps", 8000, 250, 100000);
   const int audio_bitrate =
@@ -256,8 +252,8 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   std::vector<std::string> args = {
       "ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"};
   if (capture_mode == "pipewire") {
-    append(args, {"-thread_queue_size", "1024", "-f", "yuv4mpegpipe", "-i",
-                  "pipe:0"});
+    append(args, {"-thread_queue_size", "1024", "-r", std::to_string(fps),
+                  "-f", "yuv4mpegpipe", "-i", "pipe:0"});
   } else if (capture_mode == "kmsgrab") {
     append(args, {"-f", "kmsgrab", "-device",
                   available_device(config, "drm_device", "card"),
@@ -299,14 +295,29 @@ std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
   }
 
   const std::string video_rate = std::to_string(video_bitrate) + "k";
+  const std::string transport_format = codec == "av1" ? "nut" : "mpegts";
   const std::string receiver_url =
-      "tcp://" + receiver_host + ":" + std::to_string(srt_port);
-  append(args, {"-map", "0:v:0", "-map", "1:a:0", "-c:v", encoder, "-b:v",
+      "[select=v:f=" + transport_format + ":onfail=ignore]udp://" + receiver_host + ":" +
+      std::to_string(srt_port) +
+      "?pkt_size=1316|[select=v:f=" + transport_format + ":onfail=ignore]udp://" + receiver_host + ":" +
+      std::to_string(srt_port + 1) +
+      "?pkt_size=1316|[select=a:f=" + transport_format + ":onfail=ignore]udp://" + receiver_host + ":" +
+      std::to_string(srt_port + 2) +
+      "?pkt_size=1316|[select=a:f=" + transport_format + ":onfail=ignore]udp://" + receiver_host +
+      ":" + std::to_string(srt_port + 3) + "?pkt_size=1316";
+  append(args, {"-map", "0:v:0", "-map", "1:a:0", "-af",
+                "asetpts=N/SR/TB", "-r", std::to_string(fps), "-fps_mode",
+                "cfr", "-c:v", encoder, "-b:v",
                 video_rate, "-maxrate", video_rate, "-bufsize",
                 std::to_string(video_bitrate * 2) + "k", "-g",
-                std::to_string(fps * 2), "-c:a", "libopus", "-b:a",
-                std::to_string(audio_bitrate) + "k", "-ar", "48000", "-f",
-                "matroska", receiver_url});
+                std::to_string(fps * 2)});
+  if (codec == "h264" || codec == "h265") {
+    append(args, {"-bsf:v", "dump_extra=freq=keyframe"});
+  }
+  append(args, {"-c:a", "libopus", "-b:a",
+                std::to_string(audio_bitrate) + "k", "-ar", "48000",
+                "-muxdelay", "0", "-muxpreload", "0", "-f", "tee",
+                receiver_url});
   return args;
 }
 
@@ -417,15 +428,6 @@ gboolean start_pipewire_link(gpointer) {
   return G_SOURCE_REMOVE;
 }
 
-void refresh_status() {
-  if (state.status_label == nullptr || state.command_label == nullptr) return;
-  const bool running = state.ffmpeg != nullptr;
-  gtk_label_set_text(GTK_LABEL(state.status_label),
-                     running ? "Status: streaming" : "Status: ready");
-  gtk_label_set_text(GTK_LABEL(state.command_label),
-                     state.command_display.c_str());
-}
-
 void stop_stream() {
   if (state.link_retry_source != 0) {
     g_source_remove(state.link_retry_source);
@@ -445,7 +447,6 @@ void stop_stream() {
     g_clear_object(&state.ffmpeg);
   }
   state.command_display.clear();
-  refresh_status();
 }
 
 void capture_exited(GObject* source, GAsyncResult* result, gpointer) {
@@ -507,7 +508,6 @@ void process_exited(GObject* source, GAsyncResult* result, gpointer) {
     }
     g_clear_object(&state.ffmpeg);
     state.command_display.clear();
-    refresh_status();
   }
   g_clear_error(&error);
 }
@@ -590,7 +590,6 @@ void start_stream(JsonObject* config) {
   }
   state.command_display = display.str();
   write_log("Starting FFmpeg: " + state.command_display);
-  refresh_status();
   g_subprocess_wait_async(state.ffmpeg, nullptr, process_exited, nullptr);
   if (capture_mode == "pipewire") {
     state.link_retry_source = g_timeout_add(200, start_pipewire_link, nullptr);
@@ -844,89 +843,11 @@ gboolean handle_connection(GSocketService*, GSocketConnection* connection,
   return TRUE;
 }
 
-void stop_clicked(GtkButton*, gpointer) { stop_stream(); }
-
-void hide_clicked(GtkButton*, gpointer data) {
-  gtk_window_iconify(GTK_WINDOW(data));
-}
-
-gboolean window_delete_requested(GtkWidget* window, GdkEvent*, gpointer) {
-  gtk_widget_hide(window);
-  write_log("Window hidden; agent continues running");
-  return TRUE;
-}
-
-void window_destroyed(GtkWidget*, gpointer) {
-  state.status_label = nullptr;
-  state.command_label = nullptr;
-  write_log("Window destroyed; agent continues running in headless mode");
-}
-
-void quit_clicked(GtkButton*, gpointer) {
-  write_log("Agent stopped by user");
-  stop_stream();
-  if (state.service != nullptr) g_socket_service_stop(state.service);
-  gtk_main_quit();
-}
-
-GtkWidget* create_window() {
-  GtkWidget* window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  const std::string window_title =
-      "Deck Screen Share " + std::string(kAppVersion);
-  gtk_window_set_title(GTK_WINDOW(window), window_title.c_str());
-  gtk_window_set_default_size(GTK_WINDOW(window), 560, 320);
-  gtk_container_set_border_width(GTK_CONTAINER(window), 22);
-  g_signal_connect(window, "delete-event",
-                   G_CALLBACK(window_delete_requested), nullptr);
-  g_signal_connect(window, "destroy", G_CALLBACK(window_destroyed), nullptr);
-
-  GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
-  gtk_container_add(GTK_CONTAINER(window), box);
-
-  GtkWidget* title = gtk_label_new(nullptr);
-  gtk_label_set_markup(GTK_LABEL(title),
-                       ("<span size='x-large' weight='bold'>Deck Screen Share " +
-                        std::string(kAppVersion) + "</span>").c_str());
-  gtk_label_set_xalign(GTK_LABEL(title), 0);
-  gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
-
-  GtkWidget* description = gtk_label_new(
-      "Ready to accept commands from the Windows receiver.\n"
-      "Keep this application running, then launch the game you want to capture.");
-  gtk_label_set_xalign(GTK_LABEL(description), 0);
-  gtk_label_set_line_wrap(GTK_LABEL(description), TRUE);
-  gtk_box_pack_start(GTK_BOX(box), description, FALSE, FALSE, 0);
-
-  state.status_label = gtk_label_new("Status: ready");
-  gtk_label_set_xalign(GTK_LABEL(state.status_label), 0);
-  gtk_box_pack_start(GTK_BOX(box), state.status_label, FALSE, FALSE, 0);
-
-  state.command_label = gtk_label_new("");
-  gtk_label_set_xalign(GTK_LABEL(state.command_label), 0);
-  gtk_label_set_line_wrap(GTK_LABEL(state.command_label), TRUE);
-  gtk_label_set_selectable(GTK_LABEL(state.command_label), TRUE);
-  gtk_box_pack_start(GTK_BOX(box), state.command_label, TRUE, TRUE, 0);
-
-  GtkWidget* buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-  GtkWidget* stop = gtk_button_new_with_label("Stop stream");
-  g_signal_connect(stop, "clicked", G_CALLBACK(stop_clicked), nullptr);
-  gtk_box_pack_start(GTK_BOX(buttons), stop, FALSE, FALSE, 0);
-  GtkWidget* hide = gtk_button_new_with_label("Hide window");
-  g_signal_connect(hide, "clicked", G_CALLBACK(hide_clicked), window);
-  gtk_box_pack_start(GTK_BOX(buttons), hide, FALSE, FALSE, 0);
-  GtkWidget* quit = gtk_button_new_with_label("Quit agent");
-  g_signal_connect(quit, "clicked", G_CALLBACK(quit_clicked), nullptr);
-  gtk_box_pack_start(GTK_BOX(buttons), quit, FALSE, FALSE, 0);
-  gtk_box_pack_end(GTK_BOX(box), buttons, FALSE, FALSE, 0);
-  return window;
-}
-
 }  // namespace
 
-int main(int argc, char** argv) {
-  state.gtk_available = gtk_init_check(&argc, &argv);
+int main() {
   write_log(std::string("Starting Deck Screen Share ") + kAppVersion +
-            (state.gtk_available ? " with GTK display" : " in headless mode"));
+            " in headless mode");
 
   GError* error = nullptr;
   state.service = g_socket_service_new();
@@ -936,14 +857,6 @@ int main(int argc, char** argv) {
                error ? error->message : "unknown error");
     write_log(std::string("Cannot listen on port ") + std::to_string(kAgentPort) +
               ": " + (error ? error->message : "unknown error"));
-    if (state.gtk_available) {
-      GtkWidget* dialog = gtk_message_dialog_new(
-          nullptr, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
-          "Cannot listen on port %u: %s", kAgentPort,
-          error ? error->message : "unknown error");
-      gtk_dialog_run(GTK_DIALOG(dialog));
-      gtk_widget_destroy(dialog);
-    }
     g_clear_error(&error);
     return 1;
   }
@@ -951,15 +864,9 @@ int main(int argc, char** argv) {
                    nullptr);
   g_socket_service_start(state.service);
 
-  if (state.gtk_available) {
-    GtkWidget* window = create_window();
-    gtk_widget_show_all(window);
-    gtk_main();
-  } else {
-    GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
-    g_main_loop_run(loop);
-    g_main_loop_unref(loop);
-  }
+  GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
+  g_main_loop_run(loop);
+  g_main_loop_unref(loop);
   g_clear_object(&state.service);
   return 0;
 }

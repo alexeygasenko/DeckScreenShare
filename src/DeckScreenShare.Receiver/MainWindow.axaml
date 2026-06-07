@@ -1,0 +1,257 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DeckScreenShare.Receiver.MainWindow"
+        Title="Deck Screen Share"
+        Width="1240" Height="800" MinWidth="1040" MinHeight="680"
+        Background="Transparent" TransparencyLevelHint="AcrylicBlur"
+        SystemDecorations="None" ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome" Icon="/Assets/app-icon.png">
+  <Window.Styles>
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="#F4F7FF"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="#AEB9D0"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Margin" Value="3,0,0,5"/>
+    </Style>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="0,18,0,10"/>
+    </Style>
+    <Style Selector="TextBox, ComboBox">
+      <Setter Property="Height" Value="38"/>
+      <Setter Property="Margin" Value="0,0,0,10"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="Foreground" Value="#F8FAFF"/>
+      <Setter Property="Background" Value="#591D293D"/>
+      <Setter Property="BorderBrush" Value="#55C8D8FF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="11"/>
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.18"/>
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.18"/>
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="TextBox:pointerover, ComboBox:pointerover">
+      <Setter Property="Background" Value="#78283850"/>
+      <Setter Property="BorderBrush" Value="#99BFD4FF"/>
+    </Style>
+    <Style Selector="TextBox:focus, ComboBox:focus">
+      <Setter Property="BorderBrush" Value="#CC8CCBFF"/>
+      <Setter Property="Background" Value="#8A263650"/>
+    </Style>
+    <Style Selector="ComboBoxItem">
+      <Setter Property="Foreground" Value="#F8FAFF"/>
+      <Setter Property="Background" Value="#F0182234"/>
+      <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="CornerRadius" Value="8"/>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover">
+      <Setter Property="Background" Value="#CC40577F"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="40"/>
+      <Setter Property="Padding" Value="16,8"/>
+      <Setter Property="CornerRadius" Value="13"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Background" Value="#3DFFFFFF"/>
+      <Setter Property="BorderBrush" Value="#66FFFFFF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.18"/>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12"/>
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button:pointerover">
+      <Setter Property="Background" Value="#62FFFFFF"/>
+      <Setter Property="RenderTransform" Value="scale(1.025)"/>
+    </Style>
+    <Style Selector="Button:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.975)"/>
+    </Style>
+    <Style Selector="Button.record">
+      <Setter Property="Background" Value="#D34E7DFF"/>
+      <Setter Property="BorderBrush" Value="#D9D8E8FF"/>
+    </Style>
+    <Style Selector="Button.record.recording">
+      <Setter Property="Background" Value="#D9D94768"/>
+      <Setter Property="BorderBrush" Value="#FFFFB4C2"/>
+    </Style>
+    <Style Selector="Button.window">
+      <Setter Property="Width" Value="36"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="15"/>
+    </Style>
+    <Style Selector="ScrollBar">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Width" Value="8"/>
+    </Style>
+    <Style Selector="ScrollBar /template/ Thumb">
+      <Setter Property="Background" Value="#708AB6E8"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="Slider">
+      <Setter Property="Foreground" Value="#8CCBFF"/>
+    </Style>
+  </Window.Styles>
+
+  <Border CornerRadius="26" ClipToBounds="True" BorderBrush="#55FFFFFF"
+          BorderThickness="1" Background="#F0080D18">
+    <Grid>
+      <Ellipse Width="620" Height="620" Fill="#394870FF"
+               HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-250,-340,0,0"/>
+      <Ellipse Width="560" Height="560" Fill="#3133D9C8"
+               HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-270,-330"/>
+
+      <Grid RowDefinitions="46,*" Margin="12">
+        <Grid x:Name="TitleBar" Grid.Row="0" ColumnDefinitions="*,Auto"
+              PointerPressed="TitleBar_PointerPressed">
+          <TextBlock x:Name="VersionText" VerticalAlignment="Center"
+                     Margin="12,0" Foreground="#8491AA" FontSize="11"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+            <Button Classes="window" Content="—" Click="Minimize_Click"/>
+            <Button Classes="window" Content="×" Click="Close_Click"/>
+          </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="380,18,*">
+          <Border Grid.Column="0" CornerRadius="22" Background="#3BFFFFFF"
+                  BorderBrush="#50FFFFFF" BorderThickness="1" Padding="20">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+              <StackPanel>
+                <TextBlock Classes="section" Text="Connection" Margin="0,0,0,10"/>
+                <TextBlock Classes="label" Text="Steam Deck IP address"/>
+                <TextBox x:Name="DeckHostBox"/>
+                <Grid ColumnDefinitions="*,10,*">
+                  <StackPanel>
+                    <TextBlock Classes="label" Text="Agent port"/>
+                    <TextBox x:Name="DeckPortBox"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Classes="label" Text="This PC IP address"/>
+                    <TextBox x:Name="ReceiverHostBox"/>
+                  </StackPanel>
+                </Grid>
+
+                <TextBlock Classes="section" Text="Encoding"/>
+                <Grid ColumnDefinitions="*,10,*">
+                  <StackPanel>
+                    <TextBlock Classes="label" Text="Codec"/>
+                    <ComboBox x:Name="CodecBox" ItemsSource="{Binding Codecs}"/>
+                    <TextBlock Classes="label" Text="Video, kbit/s"/>
+                    <TextBox x:Name="VideoBitrateBox"/>
+                    <TextBlock Classes="label" Text="FPS"/>
+                    <TextBox x:Name="FpsBox"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Classes="label" Text="Encoder"/>
+                    <ComboBox x:Name="BackendBox" ItemsSource="{Binding Backends}"/>
+                    <TextBlock Classes="label" Text="Audio, kbit/s"/>
+                    <TextBox x:Name="AudioBitrateBox"/>
+                    <TextBlock Classes="label" Text="Stream buffer, ms"/>
+                    <TextBox x:Name="LatencyBox"/>
+                  </StackPanel>
+                </Grid>
+
+                <TextBlock Classes="section" Text="Capture and recording"/>
+                <Grid ColumnDefinitions="*,10,*">
+                  <StackPanel>
+                    <TextBlock Classes="label" Text="Capture mode"/>
+                    <ComboBox x:Name="CaptureModeBox" ItemsSource="{Binding CaptureModes}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Classes="label" Text="Container"/>
+                    <ComboBox x:Name="ContainerBox" ItemsSource="{Binding Containers}"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Classes="label" Text="Display size"/>
+                <TextBox x:Name="SizeBox"/>
+                <TextBlock Classes="label" Text="Display"/>
+                <TextBox x:Name="DisplayBox"/>
+                <TextBlock Classes="label" Text="Audio source"/>
+                <TextBox x:Name="AudioSourceBox"/>
+                <Grid ColumnDefinitions="*,10,*">
+                  <StackPanel>
+                    <TextBlock Classes="label" Text="DRM device"/>
+                    <TextBox x:Name="DrmDeviceBox"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Classes="label" Text="VAAPI device"/>
+                    <TextBox x:Name="VaapiDeviceBox"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Classes="label" Text="Recording folder"/>
+                <Grid ColumnDefinitions="*,8,Auto">
+                  <TextBox x:Name="OutputFolderBox"/>
+                  <Button Grid.Column="2" Content="Browse" Click="Browse_Click"
+                          Height="38" Margin="0,0,0,10"/>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+
+          <Border Grid.Column="2" CornerRadius="22" Background="#3BFFFFFF"
+                  BorderBrush="#50FFFFFF" BorderThickness="1" Padding="15">
+            <Grid RowDefinitions="Auto,12,*,12,Auto">
+              <Grid ColumnDefinitions="*,Auto" Margin="6,3">
+                <StackPanel>
+                  <TextBlock Text="Live preview" FontSize="18" FontWeight="SemiBold"/>
+                  <TextBlock Text="Low-latency UDP monitor" Foreground="#AEB9D0"
+                             FontSize="12" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Border Grid.Column="1" CornerRadius="12" Background="#35FFFFFF"
+                        BorderBrush="#55FFFFFF" BorderThickness="1" Padding="11,6">
+                  <TextBlock Text="UDP" FontSize="11" FontWeight="SemiBold" Foreground="#CDE7FF"/>
+                </Border>
+              </Grid>
+
+              <Border Grid.Row="2" CornerRadius="18" ClipToBounds="True"
+                      Background="#E9000000" BorderBrush="#55FFFFFF" BorderThickness="1">
+                <Grid>
+                  <Image x:Name="PreviewImage" Stretch="Uniform" IsVisible="False"/>
+                  <StackPanel x:Name="DisconnectedPanel" HorizontalAlignment="Center"
+                              VerticalAlignment="Center" Spacing="8">
+                    <Ellipse Width="12" Height="12" Fill="#8E9AAF" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ConnectionHeading" Text="No connection" FontSize="17" FontWeight="SemiBold"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ConnectionDetail" Text="Waiting for the SteamOS agent" Foreground="#8995AA"/>
+                  </StackPanel>
+                </Grid>
+              </Border>
+
+              <Border Grid.Row="4" CornerRadius="16" Background="#35FFFFFF"
+                      BorderBrush="#50FFFFFF" BorderThickness="1" Padding="12">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusText" Text="Waiting for the SteamOS agent"
+                               Foreground="#DCE6F8" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <Button x:Name="MuteButton" Content="Mute" Click="Mute_Click"
+                              Height="32" Padding="11,4"/>
+                      <Slider x:Name="VolumeSlider" Width="150" Minimum="0" Maximum="1"
+                              ValueChanged="VolumeSlider_ValueChanged"/>
+                    </StackPanel>
+                  </StackPanel>
+                  <Button x:Name="RecordButton" Grid.Column="1" Classes="record"
+                          Content="Start recording" Click="Record_Click"
+                          VerticalAlignment="Center"/>
+                </Grid>
+              </Border>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

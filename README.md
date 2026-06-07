@@ -6,31 +6,32 @@ same local network.
 
 ## Features
 
-- A C++/GTK SteamOS application packaged as a Flatpak.
+- A headless C++ SteamOS agent packaged as a Flatpak.
 - The SteamOS application can be added as a Non-Steam Game and kept running
   while another game is open.
-- A native C# WPF receiver for Windows.
+- A C# Avalonia receiver with a custom liquid-glass Windows interface.
 - H.264, H.265/HEVC, and AV1 video encoding.
 - Configurable video bitrate, audio bitrate, FPS, and stream buffer.
 - MKV, MP4, MOV, WebM, and MPEG-TS recording containers.
-- Built-in live preview.
-- A connection test that starts live preview without creating a recording.
+- Automatic low-latency UDP live preview with audio, volume, and mute controls.
+- Automatic reconnection when the SteamOS agent starts after the Windows app.
 - Automatic persistence of all Windows receiver settings between launches.
-- TCP Matroska transport designed for reliable streaming on a local Wi-Fi network.
+- Independent UDP video, audio, and recording streams for low-latency local Wi-Fi use.
 
 ## Architecture
 
-The SteamOS Flatpak starts FFmpeg, captures the display and system audio, and
-sends a Matroska stream over TCP. The Windows application receives that stream,
-saves it to the selected container, and decodes reduced JPEG frames for its live
-preview.
+The SteamOS Flatpak runs as a headless service, starts FFmpeg on receiver
+request, captures the display and system audio, and sends independent UDP
+streams. The Windows application decodes preview frames directly into memory,
+plays preview audio, and records from dedicated video and audio ports without
+interrupting the preview.
 
 MKV and WebM preserve the original video and Opus audio without transcoding.
 MP4, MOV, and MPEG-TS preserve the original video and transcode audio to AAC for
 container compatibility.
 
-The SteamOS application is implemented in C++17 using GTK 3, GIO, and
-JSON-GLib. Python is not used anywhere in the project.
+The SteamOS application is implemented in C++17 using GIO and JSON-GLib.
+Python is not used anywhere in the project.
 
 ## Build And Install The SteamOS Flatpak
 
@@ -73,19 +74,18 @@ Open Steam in Desktop Mode:
 3. Return to Gaming Mode and launch Deck Screen Share.
 4. Keep it running and launch the game you want to record.
 
-The Flatpak listens for receiver commands on TCP port `8765` and sends video to
-the Windows receiver on TCP port `9000`.
+The Flatpak listens for receiver commands on TCP port `8765`. UDP ports `9000`
+and `9002` carry preview video and audio. UDP ports `9001` and `9003` carry
+recording video and audio.
 
-When Steam Gaming Mode does not provide a graphical display, the SteamOS
-application runs headless instead of exiting. Its persistent diagnostic log is
-stored at:
+The SteamOS agent is always headless so its lifetime is not tied to a Gamescope
+window. Its persistent diagnostic log is stored at:
 
 ```text
 ~/.var/app/io.github.deckscreenshare.Agent/data/DeckScreenShare/agent.log
 ```
 
-Closing or hiding the SteamOS window does not stop the agent. Use **Quit agent**
-inside the SteamOS application when you want to stop it completely.
+Stop the agent from the Steam library when it is no longer needed.
 
 ## SteamOS Capture Notes
 
@@ -123,16 +123,16 @@ dotnet build DeckScreenShare.sln -c Release
 ```
 
 Place `ffmpeg.exe` beside the built `DeckScreenShare.exe`, or add FFmpeg to
-`PATH`. Start the application, enter the Steam Deck IP and the Windows PC local
-IP, select the recording settings, and click **Start recording**.
+`PATH`. Start the application and it immediately begins waiting for the SteamOS
+agent. When the agent becomes available, preview video and audio connect
+automatically. Use the volume and mute controls below the preview. The recording
+button toggles recording on and off.
 
 Recordings are saved to `Videos\DeckScreenShare` by default. On first launch,
 allow the application and FFmpeg through Windows Firewall for private networks.
 
-The receiver reports a successful preview or recording only after the first
-video frame arrives. If SteamOS FFmpeg exits before that, its error and exit
-code are shown in the Windows status area. This makes capture-mode, DRM-device,
-audio-source, and encoder failures directly visible.
+If the SteamOS agent is unavailable, the preview remains black and reports that
+there is no connection. The receiver retries automatically.
 
 ## Automated Builds
 
@@ -165,4 +165,5 @@ pactl list short sources
 ## Security
 
 The SteamOS HTTP control API does not implement authentication. Use it only on a
-trusted local network. Do not expose ports `8765` or `9000` to the internet.
+trusted local network. Do not expose control port `8765` or UDP ports `9000`
+through `9003` to the internet.

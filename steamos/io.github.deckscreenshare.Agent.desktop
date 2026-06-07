@@ -6,4 +6,4 @@ Exec=deck-screen-share-agent
 Icon=io.github.deckscreenshare.Agent
 Terminal=false
 Categories=Game;AudioVideo;
-StartupNotify=true
+StartupNotify=false

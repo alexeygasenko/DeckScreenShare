@@ -26,14 +26,13 @@ public sealed record RecordingSettings(
     string Codec,
     string Container,
     int AudioBitrateKbps,
-    string OutputPath,
-    string PreviewPath);
+    string OutputPath);
 
 public sealed record PreviewSettings(
     string FfmpegPath,
     int SrtPort,
-    int LatencyMs,
-    string PreviewPath);
+    int Width,
+    int Height);
 
 public sealed record AgentStatus(
     [property: JsonPropertyName("running")] bool Running,
@@ -67,4 +66,6 @@ public sealed class AppSettings
     public string DrmDevice { get; set; } = "/dev/dri/card0";
     public string VaapiDevice { get; set; } = "/dev/dri/renderD128";
     public string OutputFolder { get; set; } = "";
+    public double PreviewVolume { get; set; } = 0.8;
+    public bool PreviewMuted { get; set; }
 }

@@ -12,12 +12,17 @@
   <description>
     <p>
       Captures the Steam Deck display and system audio and sends them to the
-      Deck Screen Share Windows receiver over TCP.
+      Deck Screen Share Windows receiver over low-latency UDP streams.
     </p>
   </description>
   <launchable type="desktop-id">io.github.deckscreenshare.Agent.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-06-07">
+      <description>
+        <p>Runs as a stable headless Gaming Mode agent and sends independent UDP preview, audio, and recording streams.</p>
+      </description>
+    </release>
     <release version="0.1.22" date="2026-06-07">
       <description>
         <p>Preserves moving Gamescope frames while pacing the stream at the configured frame rate.</p>

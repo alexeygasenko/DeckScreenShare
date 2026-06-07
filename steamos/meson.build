@@ -1,18 +1,17 @@
 project(
   'deck-screen-share-agent',
   'cpp',
-  version: '0.1.22',
+  version: '0.2.0',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
 )
 
-gtk = dependency('gtk+-3.0')
 gio = dependency('gio-2.0')
 json_glib = dependency('json-glib-1.0')
 
 executable(
   'deck-screen-share-agent',
   'src/main.cpp',
-  dependencies: [gtk, gio, json_glib],
+  dependencies: [gio, json_glib],
   install: true,
 )
 
