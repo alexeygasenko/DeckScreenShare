@@ -15,7 +15,7 @@ namespace {
 
 constexpr guint kAgentPort = 8765;
 constexpr int kProtocolVersion = 15;
-constexpr const char* kAppVersion = "0.1.20";
+constexpr const char* kAppVersion = "0.1.21";
 
 struct AppState {
   GtkWidget* status_label = nullptr;
@@ -31,6 +31,9 @@ struct AppState {
   std::string link_error_path;
   int exit_code = 0;
   int link_attempts = 0;
+  int capture_node_id = -1;
+  int link_output_port = -1;
+  int link_input_port = -1;
   guint link_retry_source = 0;
   bool link_established = false;
   bool gtk_available = false;
@@ -175,6 +178,7 @@ int gamescope_node_id() {
   std::istringstream lines(nodes);
   std::string line;
   int current_id = -1;
+  int gamescope_id = -1;
   while (std::getline(lines, line)) {
     std::istringstream values(line);
     std::string key;
@@ -184,9 +188,10 @@ int gamescope_node_id() {
     }
     if (current_id >= 0 &&
         line.find("node.name = \"gamescope\"") != std::string::npos) {
-      return current_id;
+      gamescope_id = std::max(gamescope_id, current_id);
     }
   }
+  if (gamescope_id >= 0) return gamescope_id;
   throw std::runtime_error("Gamescope PipeWire video node is unavailable");
 }
 
@@ -195,13 +200,14 @@ int pipewire_port_id(bool output, const std::string& node_name) {
       pipewire_command_output({"pw-link", output ? "-oI" : "-iI"});
   std::istringstream lines(ports);
   std::string line;
+  int port_id = -1;
   while (std::getline(lines, line)) {
     if (line.find(node_name + ":") == std::string::npos) continue;
     std::istringstream values(line);
     int id = -1;
-    if (values >> id) return id;
+    if (values >> id) port_id = std::max(port_id, id);
   }
-  return -1;
+  return port_id;
 }
 
 std::vector<std::string> build_ffmpeg_command(JsonObject* config) {
@@ -289,9 +295,10 @@ std::vector<std::string> build_pipewire_command(JsonObject* config) {
   const int fps = json_int(config, "fps", 60, 1, 240);
   const std::string pipeline =
       json_string(config, "pipewire_pipeline", "vaapi");
+  state.capture_node_id = gamescope_node_id();
   std::vector<std::string> args = {
       "gst-launch-1.0", "-q", "pipewiresrc",
-      "path=" + std::to_string(gamescope_node_id()), "do-timestamp=true"};
+      "path=" + std::to_string(state.capture_node_id), "do-timestamp=true"};
   if (pipeline == "vaapi") {
     append(args, {"!", "vapostproc", "!", "video/x-raw,format=I420"});
   } else if (pipeline == "vulkan") {
@@ -347,6 +354,8 @@ gboolean start_pipewire_link(gpointer) {
   state.link_attempts++;
   const int output_port = pipewire_port_id(true, "gamescope");
   const int input_port = pipewire_port_id(false, "gst-launch-1.0");
+  state.link_output_port = output_port;
+  state.link_input_port = input_port;
   if (output_port < 0 || input_port < 0) {
     if (state.link_attempts < 30) {
       state.link_retry_source = g_timeout_add(200, start_pipewire_link, nullptr);
@@ -483,6 +492,9 @@ void start_stream(JsonObject* config) {
   state.last_error.clear();
   state.exit_code = 0;
   state.link_attempts = 0;
+  state.capture_node_id = -1;
+  state.link_output_port = -1;
+  state.link_input_port = -1;
   state.link_retry_source = 0;
   state.link_established = false;
 
@@ -588,6 +600,9 @@ std::string status_json() {
          (state.ffmpeg && (state.link || state.link_established) ? "true"
                                                                  : "false") +
          ",\"link_attempts\":" + std::to_string(state.link_attempts) +
+         ",\"capture_node_id\":" + std::to_string(state.capture_node_id) +
+         ",\"link_output_port\":" + std::to_string(state.link_output_port) +
+         ",\"link_input_port\":" + std::to_string(state.link_input_port) +
          ",\"last_error\":\"" + escape_json(state.last_error) +
          "\",\"exit_code\":" + std::to_string(state.exit_code) +
          ",\"protocol_version\":" + std::to_string(kProtocolVersion) +
@@ -602,7 +617,10 @@ std::string diagnostics_json() {
         (capture_error.empty() ? "" : "\n") + std::string("PipeWire link:\n") +
         link_error;
   }
-  return std::string("{\"pipewire_nodes\":\"\",\"pipewire_ports\":\"\",") +
+  return std::string("{\"pipewire_nodes\":\"") +
+         escape_json(pipewire_command_output({"pw-cli", "list-objects", "Node"})) +
+         "\",\"pipewire_ports\":\"" +
+         escape_json(pipewire_command_output({"pw-link", "-iolI"})) + "\"," +
          "\"capture_stderr\":\"" +
          escape_json(capture_error) +
          "\",\"ffmpeg_stderr\":\"" +

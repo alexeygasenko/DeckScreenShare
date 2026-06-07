@@ -18,6 +18,11 @@
   <launchable type="desktop-id">io.github.deckscreenshare.Agent.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.21" date="2026-06-07">
+      <description>
+        <p>Selects the newest active Gamescope and GStreamer PipeWire ports across repeated captures.</p>
+      </description>
+    </release>
     <release version="0.1.20" date="2026-06-07">
       <description>
         <p>Links the dynamic Gamescope and GStreamer PipeWire port IDs and verifies delivered video in stress tests.</p>
